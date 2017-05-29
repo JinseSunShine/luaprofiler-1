@@ -1,7 +1,7 @@
 /*
 ** LuaProfiler
 ** Copyright Kepler Project 2005-2007 (http://www.keplerproject.org/luaprofiler)
-** $Id: lua50_profiler.c,v 1.13 2008/05/19 18:36:23 mascarenhas Exp $
+** $Id: lua50_profiler.c,v 1.16 2008-05-20 21:16:36 mascarenhas Exp $
 */
 
 /*****************************************************************************
@@ -17,19 +17,23 @@ lua50_profiler.c:
 #include "core_profiler.h"
 #include "function_meter.h"
 
-#include "lua.h"
-#include "lauxlib.h"
 
 /* Indices for the main profiler stack and for the original exit function */
 static int exit_id;
 static int profstate_id;
 
+static int StatisticsID;
+static int CalleeMetatableID;
+static int LineCount = 1;
+
 /* Forward declaration */
 static float calcCallTime(lua_State *L);
+static int profiler_stop(lua_State *L);
 
 /* called by Lua (via the callhook mechanism) */
 static void callhook(lua_State *L, lua_Debug *ar) {
   int currentline;
+  const char* CallerSource = "";
   lua_Debug previous_ar;
   lprofP_STATE* S;
   lua_pushlightuserdata(L, &profstate_id);
@@ -39,20 +43,31 @@ static void callhook(lua_State *L, lua_Debug *ar) {
   if (lua_getstack(L, 1, &previous_ar) == 0) {
     currentline = -1;
   } else {
-    lua_getinfo(L, "l", &previous_ar);
+    lua_getinfo(L, "Sl", &previous_ar);
     currentline = previous_ar.currentline;
+    if (previous_ar.source != NULL)
+    {
+        CallerSource = previous_ar.source;
+    }
   }
       
   lua_getinfo(L, "nS", ar);
 
-  if (!ar->event) {
+  switch (ar->event)
+  {
+  case LUA_HOOKCALL:
+  case LUA_HOOKTAILCALL:
     /* entering a function */
     lprofP_callhookIN(S, (char *)ar->name,
 		      (char *)ar->source, ar->linedefined,
-		      currentline);
-  }
-  else { /* ar->event == "return" */
-    lprofP_callhookOUT(S);
+		      currentline, CallerSource);
+    break;
+  case LUA_HOOKRET:
+    lprofP_callhookOUT(S, L, &StatisticsID, &CalleeMetatableID);
+    break;
+  case LUA_HOOKCOUNT:
+      lprofP_callhookCount(S, LineCount);
+      break;
   }
 }
 
@@ -67,7 +82,15 @@ static void exit_profiler(lua_State *L) {
   lua_gettable(L, LUA_REGISTRYINDEX);
   S = (lprofP_STATE*)lua_touserdata(L, -1);
   /* leave all functions under execution */
-  while (lprofP_callhookOUT(S)) ;
+  while (lprofP_callhookOUT(S, L, &StatisticsID, &CalleeMetatableID)) ;
+
+  lua_pushlightuserdata(L, &StatisticsID);
+  lua_pushnil(L);
+  lua_settable(L, LUA_REGISTRYINDEX);
+  lua_pushlightuserdata(L, &CalleeMetatableID);
+  lua_pushnil(L);
+  lua_settable(L, LUA_REGISTRYINDEX);
+
   /* call the original Lua 'exit' function */
   lua_pushlightuserdata(L, &exit_id);
   lua_gettable(L, LUA_REGISTRYINDEX);
@@ -112,27 +135,83 @@ static int profiler_resume(lua_State *L) {
   return 0;
 }
 
+static int profiler_GetInfo(lua_State *L)
+{
+    lua_pushlightuserdata(L, &StatisticsID);
+    lua_gettable(L, LUA_REGISTRYINDEX);
+    return 1;
+}
+
+static int IndexCallee(lua_State *L)
+{
+    if (lua_isuserdata(L, 1) && lua_isstring(L, 2))
+    {
+        char* Name = lua_tostring(L, 2);
+        CalleeInfo* Data = (CalleeInfo*)lua_touserdata(L, 1);
+        if (strcmp(Name, "Count") == 0)
+        {
+            lua_pushnumber(L, Data->Count);
+            return 1;
+        }
+        else if(strcmp(Name, "LocalStep") == 0)
+        {
+            lua_pushnumber(L, Data->LocalStep);
+            return 1;
+        }
+        else if (strcmp(Name, "TotalStep") == 0)
+        {
+            lua_pushnumber(L, Data->TotalStep);
+            return 1;
+        }
+        else if (strcmp(Name, "TotalTime") == 0)
+        {
+            lua_pushnumber(L, Data->TotalTime);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static const luaL_Reg CalleeFuncs[] = {
+    { "__index", IndexCallee },
+    { NULL, NULL }
+};
+
 static int profiler_init(lua_State *L) {
   lprofP_STATE* S;
   const char* outfile;
   float function_call_time;
 
+  lua_pushlightuserdata(L, &profstate_id);
+  lua_gettable(L, LUA_REGISTRYINDEX);
+  if(!lua_isnil(L, -1)) {
+    profiler_stop(L);
+  }
+  lua_pop(L, 1);
+
   function_call_time = calcCallTime(L);
 
   outfile = NULL;
-  if(lua_gettop(L) == 1)
-    outfile = luaL_checkstring(L, -1);
+  if(lua_gettop(L) >= 1)
+    outfile = luaL_checkstring(L, 1);
 
-  lua_sethook(L, (lua_Hook)callhook, LUA_MASKCALL | LUA_MASKRET, 0);
   /* init with default file name and printing a header line */
   if (!(S=lprofP_init_core_profiler(outfile, 1, function_call_time))) {
-    luaL_error(L,"LuaProfiler error: output file could not be opened!");
-    lua_pushnil(L);
-    return 1;
+    return luaL_error(L,"LuaProfiler error: output file could not be opened!");
   }
+
+  lua_sethook(L, (lua_Hook)callhook, LUA_MASKCALL | LUA_MASKRET | LUA_MASKCOUNT, LineCount);
 
   lua_pushlightuserdata(L, &profstate_id);
   lua_pushlightuserdata(L, S);
+  lua_settable(L, LUA_REGISTRYINDEX);
+
+  lua_pushlightuserdata(L, &StatisticsID);
+  lua_newtable(L);
+  lua_settable(L, LUA_REGISTRYINDEX);
+
+  lua_pushlightuserdata(L, &CalleeMetatableID);
+  luaL_newlib(L, CalleeFuncs);
   lua_settable(L, LUA_REGISTRYINDEX);
 	
   /* use our own exit function instead */
@@ -157,11 +236,13 @@ static int profiler_init(lua_State *L) {
   /* supposed to be by the time the profiler is activated when loaded  */
   /* as a library.                                                     */
 
-  lprofP_callhookIN(S, "profiler_init", "(C)", -1, -1);
+  lprofP_callhookIN(S, "profiler_init", "(C)", -1, -1, "");
 	
   lua_pushboolean(L, 1);
   return 1;
 }
+
+extern void lprofP_close_core_profiler(lprofP_STATE* S);
 
 static int profiler_stop(lua_State *L) {
   lprofP_STATE* S;
@@ -171,10 +252,21 @@ static int profiler_stop(lua_State *L) {
   if(!lua_isnil(L, -1)) {
     S = (lprofP_STATE*)lua_touserdata(L, -1);
     /* leave all functions under execution */
-    while (lprofP_callhookOUT(S));
+    while (lprofP_callhookOUT(S, L, &StatisticsID, &CalleeMetatableID));
     lprofP_close_core_profiler(S);
+    lua_pushlightuserdata(L, &profstate_id);
+    lua_pushnil(L);
+    lua_settable(L, LUA_REGISTRYINDEX);
     lua_pushboolean(L, 1);
   } else { lua_pushboolean(L, 0); }
+
+  lua_pushlightuserdata(L, &StatisticsID);
+  lua_pushnil(L);
+  lua_settable(L, LUA_REGISTRYINDEX);
+  lua_pushlightuserdata(L, &CalleeMetatableID);
+  lua_pushnil(L);
+  lua_settable(L, LUA_REGISTRYINDEX);
+
   return 1;
 }
 
@@ -204,16 +296,22 @@ static float calcCallTime(lua_State *L) {
   return lprofC_get_seconds(timer) / (float) 100000;
 }
 
-static const luaL_reg prof_funcs[] = {
+static const luaL_Reg prof_funcs[] = {
   { "pause", profiler_pause },
   { "resume", profiler_resume },
   { "start", profiler_init },
+  { "GetInfo", profiler_GetInfo },
   { "stop", profiler_stop },
   { NULL, NULL }
 };
 
 int luaopen_profiler(lua_State *L) {
+#if LUA_VERSION_NUM > 501 && !defined(LUA_COMPAT_MODULE)
+  lua_newtable(L);
+  luaL_setfuncs(L, prof_funcs, 0);
+#else
   luaL_openlib(L, "profiler", prof_funcs, 0);
+#endif
   lua_pushliteral (L, "_COPYRIGHT");
   lua_pushliteral (L, "Copyright (C) 2003-2007 Kepler Project");
   lua_settable (L, -3);

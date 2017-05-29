@@ -1,7 +1,7 @@
 /*
 ** LuaProfiler
 ** Copyright Kepler Project 2005-2007 (http://www.keplerproject.org/luaprofiler)
-** $Id: stack.h,v 1.5 2007/08/22 19:23:53 carregal Exp $
+** $Id: stack.h,v 1.5 2007-08-22 19:23:53 carregal Exp $
 */
 
 /*****************************************************************************
@@ -24,8 +24,11 @@ struct lprofS_sSTACK_RECORD {
 	char *source_code;        
 	long line_defined;
 	long current_line;
+    const char* CallerSource;
 	float local_time;
 	float total_time;
+    size_t local_step;
+    size_t total_step;
 	lprofS_STACK_RECORD *next;
 };
 

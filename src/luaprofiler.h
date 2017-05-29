@@ -1,7 +1,7 @@
 /*
 ** LuaProfiler
 ** Copyright Kepler Project 2005-2007 (http://www.keplerproject.org/luaprofiler)
-** $Id: luaprofiler.h,v 1.4 2007/08/22 19:23:53 carregal Exp $
+** $Id: luaprofiler.h,v 1.4 2007-08-22 19:23:53 carregal Exp $
 */
 
 /*****************************************************************************
@@ -10,5 +10,4 @@ luaprofiler.h:
 *****************************************************************************/
 
 
-void init_profiler(void *);
-
+extern int luaopen_profiler(lua_State *L);

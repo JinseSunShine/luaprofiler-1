@@ -1,7 +1,7 @@
 /*
 ** LuaProfiler
 ** Copyright Kepler Project 2005-2007 (http://www.keplerproject.org/luaprofiler)
-** $Id: stack.c,v 1.4 2007/08/22 19:23:53 carregal Exp $
+** $Id: stack.c,v 1.4 2007-08-22 19:23:53 carregal Exp $
 */
 
 /*****************************************************************************

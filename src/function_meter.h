@@ -1,7 +1,7 @@
 /*
 ** LuaProfiler
 ** Copyright Kepler Project 2005-2007 (http://www.keplerproject.org/luaprofiler)
-** $Id: function_meter.h,v 1.5 2007/08/22 19:23:53 carregal Exp $
+** $Id: function_meter.h,v 1.5 2007-08-22 19:23:53 carregal Exp $
 */
 
 /*****************************************************************************
@@ -48,7 +48,7 @@ void lprofM_resume_function(lprofP_STATE* S);
 
 /* the local time for the parent function is paused */
 /* and the local and total time markers are started */
-void lprofM_enter_function(lprofP_STATE* S, char *file_defined, char *fcn_name, long linedefined, long currentline);
+void lprofM_enter_function(lprofP_STATE* S, char *file_defined, char *fcn_name, long linedefined, long currentline, const char *CallerFile);
 
 /* computes times and remove the top of the stack         */
 /* 'isto_resume' specifies if the parent function's timer */
