@@ -71,6 +71,15 @@ static void callhook(lua_State *L, lua_Debug *ar) {
   }
 }
 
+static void ClearCachedData(lua_State *L)
+{
+    lua_pushlightuserdata(L, &StatisticsID);
+    lua_pushnil(L);
+    lua_settable(L, LUA_REGISTRYINDEX);
+    lua_pushlightuserdata(L, &CalleeMetatableID);
+    lua_pushnil(L);
+    lua_settable(L, LUA_REGISTRYINDEX);
+}
 
 /* Lua function to exit politely the profiler                               */
 /* redefines the lua exit() function to not break the log file integrity    */
@@ -84,12 +93,7 @@ static void exit_profiler(lua_State *L) {
   /* leave all functions under execution */
   while (lprofP_callhookOUT(S, L, &StatisticsID, &CalleeMetatableID)) ;
 
-  lua_pushlightuserdata(L, &StatisticsID);
-  lua_pushnil(L);
-  lua_settable(L, LUA_REGISTRYINDEX);
-  lua_pushlightuserdata(L, &CalleeMetatableID);
-  lua_pushnil(L);
-  lua_settable(L, LUA_REGISTRYINDEX);
+  ClearCachedData(L);
 
   /* call the original Lua 'exit' function */
   lua_pushlightuserdata(L, &exit_id);
@@ -146,7 +150,7 @@ static int IndexCallee(lua_State *L)
 {
     if (lua_isuserdata(L, 1) && lua_isstring(L, 2))
     {
-        char* Name = lua_tostring(L, 2);
+        const char* Name = lua_tostring(L, 2);
         CalleeInfo* Data = (CalleeInfo*)lua_touserdata(L, 1);
         if (strcmp(Name, "Count") == 0)
         {
@@ -260,12 +264,7 @@ static int profiler_stop(lua_State *L) {
     lua_pushboolean(L, 1);
   } else { lua_pushboolean(L, 0); }
 
-  lua_pushlightuserdata(L, &StatisticsID);
-  lua_pushnil(L);
-  lua_settable(L, LUA_REGISTRYINDEX);
-  lua_pushlightuserdata(L, &CalleeMetatableID);
-  lua_pushnil(L);
-  lua_settable(L, LUA_REGISTRYINDEX);
+  ClearCachedData(L);
 
   return 1;
 }

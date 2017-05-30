@@ -95,6 +95,92 @@ int lprofP_callhookCount(lprofP_STATE* S, int LineCount) {
     return 0;
 }
 
+void GetOrCreateTable(lua_State *L, const char* KeyName)
+{
+    int ParentIndex = -1;
+    if (lua_istable(L, ParentIndex))
+    {
+        lua_pushstring(L, KeyName);
+        ParentIndex--;
+        lua_gettable(L, ParentIndex);
+
+        if (lua_isnil(L, -1))
+        {
+            lua_pop(L, 1);
+            ParentIndex++;
+
+            lua_pushstring(L, KeyName);
+            ParentIndex--;
+
+            lua_newtable(L);
+            ParentIndex--;
+
+            lua_settable(L, ParentIndex);
+            ParentIndex += 2;
+
+            lua_pushstring(L, KeyName);
+            ParentIndex--;
+
+            lua_gettable(L, ParentIndex);
+        }
+    }
+}
+
+void AddCalleeMeta(lua_State *L, int* CalleeMetaPtr)
+{
+    int CalleeIndex = -1;
+
+    lua_pushlightuserdata(L, CalleeMetaPtr);
+    CalleeIndex--;
+
+    lua_gettable(L, LUA_REGISTRYINDEX);
+
+    if (lua_isnil(L, -1))
+    {
+        lua_pop(L, 1);
+    }
+    else
+    {
+        lua_setmetatable(L, CalleeIndex);
+    }
+}
+
+void GetOrCreateCallee(lua_State *L, int* CalleeMetaPtr, const char* CalleeName)
+{
+    int FuncInfoIndex = -1;
+    lua_pushstring(L, CalleeName);
+    FuncInfoIndex--;
+
+    lua_gettable(L, FuncInfoIndex);
+
+    if (lua_isnil(L, -1))
+    {
+        lua_pop(L, 1);
+        FuncInfoIndex++;
+
+        lua_pushstring(L, CalleeName);
+        FuncInfoIndex--;
+
+        CalleeInfo* Info = (CalleeInfo*)lua_newuserdata(L, sizeof(CalleeInfo));
+        FuncInfoIndex--;
+
+        Info->Count = 0;
+        Info->LocalStep = 0;
+        Info->TotalStep = 0;
+        Info->TotalTime = 0;
+
+        AddCalleeMeta(L, CalleeMetaPtr);
+
+        lua_settable(L, FuncInfoIndex);
+        FuncInfoIndex += 2;
+
+        lua_pushstring(L, CalleeName);
+        FuncInfoIndex--;
+
+        lua_gettable(L, FuncInfoIndex);
+    }
+}
+
 /* pauses all timers to write a log line and computes the new stack */
 /* returns if there is another function in the stack */
 int lprofP_callhookOUT(lprofP_STATE* S, lua_State *L, int* StatisticsIDPtr, int* CalleeMetaPtr) {
@@ -121,9 +207,8 @@ int lprofP_callhookOUT(lprofP_STATE* S, lua_State *L, int* StatisticsIDPtr, int*
   {
       lua_pushlightuserdata(L, StatisticsIDPtr);
       lua_gettable(L, LUA_REGISTRYINDEX);
-
-      int StatisticsIndex = -1;
-      if (lua_istable(L, StatisticsIndex))
+      int BaseIndex = -1;
+      if (lua_istable(L, -1))
       {
           char* FuncName = info->function_name;
           char* FuncSource = info->file_defined;
@@ -132,102 +217,25 @@ int lprofP_callhookOUT(lprofP_STATE* S, lua_State *L, int* StatisticsIDPtr, int*
           char* FuncFullName = malloc(NameSize);
           snprintf(FuncFullName, NameSize, "%s@%s:%li", FuncName, FuncSource, info->line_defined);
 
-          lua_pushstring(L, FuncFullName);
-          StatisticsIndex--;
-          lua_gettable(L, StatisticsIndex);
-
-          if (lua_isnil(L, -1))
-          {
-              lua_pop(L, 1);
-              StatisticsIndex++;
-
-              lua_pushstring(L, FuncFullName);
-              StatisticsIndex--;
-
-              lua_newtable(L);
-              StatisticsIndex--;
-
-              lua_settable(L, StatisticsIndex);
-              StatisticsIndex += 2;
-
-              lua_pushstring(L, FuncFullName);
-              StatisticsIndex--;
-
-              lua_gettable(L, StatisticsIndex);
-          }
-          int FuncInfoIndex = -1;
+          GetOrCreateTable(L, FuncFullName);
+          BaseIndex--;
 
           CalleeInfo* Info = NULL;
           const size_t CalleeSize = strlen(info->CallerSource) + 10;
           char* Callee = malloc(CalleeSize);
           snprintf(Callee, CalleeSize, "%s:%li", info->CallerSource, info->current_line);
 
-          lua_pushstring(L, Callee);
-          StatisticsIndex--;
-          FuncInfoIndex--;
-
-          lua_gettable(L, FuncInfoIndex);
-
-          if (lua_isnil(L, -1))
-          {
-              lua_pop(L, 1);
-              StatisticsIndex++;
-              FuncInfoIndex++;
-
-              lua_pushstring(L, Callee);
-              StatisticsIndex--;
-              FuncInfoIndex--;
-
-              Info = (CalleeInfo*)lua_newuserdata(L, sizeof(CalleeInfo));
-              StatisticsIndex--;
-              FuncInfoIndex--;
-
-              Info->Count = 0;
-              Info->LocalStep = 0;
-              Info->TotalStep = 0;
-              Info->TotalTime = 0;
-
-              int CalleeIndex = -1;
-
-              lua_pushlightuserdata(L, CalleeMetaPtr);
-              StatisticsIndex--;
-              FuncInfoIndex--;
-              CalleeIndex--;
-
-              lua_gettable(L, LUA_REGISTRYINDEX);
-
-              if (lua_isnil(L, -1))
-              {
-                  lua_pop(L, 1);
-              }
-              else
-              {
-                  lua_setmetatable(L, CalleeIndex);
-              }
-            StatisticsIndex++;
-            FuncInfoIndex++;
-            CalleeIndex++;
-
-              lua_settable(L, FuncInfoIndex);
-              StatisticsIndex+=2;
-              FuncInfoIndex += 2;
-
-              lua_pushstring(L, Callee);
-              StatisticsIndex--;
-              FuncInfoIndex--;
-
-              lua_gettable(L, FuncInfoIndex);
-          }
-          
-        Info = (CalleeInfo*)lua_touserdata(L, -1);
-        Info->Count += 1;
-        Info->LocalStep += info->local_step;
-        Info->TotalStep += info->total_step;
-        Info->TotalTime += info->total_time;
+          GetOrCreateCallee(L, CalleeMetaPtr, Callee);
+          BaseIndex--;
+            Info = (CalleeInfo*)lua_touserdata(L, -1);
+            Info->Count += 1;
+            Info->LocalStep += info->local_step;
+            Info->TotalStep += info->total_step;
+            Info->TotalTime += info->total_time;
           free(FuncFullName);
           free(Callee);
       }
-      lua_pop(L, -1 * StatisticsIndex);
+      lua_pop(L, -1 * BaseIndex);
   }
 
   /* ... now it's ok to resume the timer */
@@ -244,38 +252,12 @@ int lprofP_callhookOUT(lprofP_STATE* S, lua_State *L, int* StatisticsIDPtr, int*
 /* returns true if the file could be opened */
 lprofP_STATE* lprofP_init_core_profiler(const char *_out_filename, int isto_printheader, float _function_call_time) {
   lprofP_STATE* S;
-  char auxs[256];
-  char *s;
-  char *randstr;
-  const char *out_filename;
 
   function_call_time = _function_call_time;
-  out_filename = (_out_filename) ? (_out_filename):(OUT_FILENAME);
-        
-  /* the random string to build the logname is extracted */
-  /* from 'tmpnam()' (the '/tmp/' part is deleted)     */
-  randstr = tmpnam(NULL);
-  for (s = strtok(randstr, "/\\"); s; s = strtok(NULL, "/\\")) {
-    randstr = s;
-  }
-
-  if(randstr[strlen(randstr)-1]=='.')
-    randstr[strlen(randstr)-1]='\0';
-
-  sprintf(auxs, out_filename, randstr);
-  outf = fopen(auxs, "w+");
-  if (!outf) {
-    return 0;
-  }
-
-  if (isto_printheader) {
-    output("CallInfo = {}\n");
-  }
 
   /* initialize the 'function_meter' */
   S = lprofM_init();
   if(!S) {
-    fclose(outf);
     return 0;
   }
     
@@ -283,10 +265,6 @@ lprofP_STATE* lprofP_init_core_profiler(const char *_out_filename, int isto_prin
 }
 
 void lprofP_close_core_profiler(lprofP_STATE* S) {
-    if (outf)
-    {
-        fclose(outf);
-    }
   if(S) free(S);
 }
 
