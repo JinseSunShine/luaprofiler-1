@@ -194,7 +194,7 @@ static int coroutine_create(lua_State *L) {
   lua_State *NL = lua_newthread(L);
   luaL_argcheck(L, lua_isfunction(L, 1) && !lua_iscfunction(L, 1), 1,
 		"Lua function expected");
-  lua_pushvalue(L, 1);  /* move function to top */
+  lua_insert(L, 1);  /* move function to top */
   lua_xmove(L, NL, 1);  /* move function from L to NL */
   /* Inits profiler and sets profiler hook for this coroutine */
   S = lprofM_init();
@@ -275,12 +275,17 @@ static int profiler_init(lua_State *L) {
     return luaL_error(L,"LuaProfiler error: output file could not be opened!");
   }
 
+  if (lua_isnumber(L, 1))
+  {
+      LineCount = lua_tonumber(L, 1);
+  }
+
   lua_sethook(L, (lua_Hook)callhook, LUA_MASKCALL | LUA_MASKRET | LUA_MASKCOUNT, LineCount);
 
   AddProfileState(L, S);
 
   int n = lua_gettop(L);
-  for (int index = 1; index <= n; index++)
+  for (int index = 2; index <= n; index++)
   {
       if (!lua_isthread(L, index))
       {
@@ -341,7 +346,7 @@ static int profiler_stop(lua_State *L) {
 static float calcCallTime(lua_State *L) {
   clock_t timer;
   char lua_code[] = "                                     \
-                   function lprofT_mesure_function()    \
+                   local function lprofT_mesure_function()    \
                    local i                              \
                                                         \
                       local t = function()              \
