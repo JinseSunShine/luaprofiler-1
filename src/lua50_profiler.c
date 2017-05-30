@@ -30,15 +30,71 @@ static int LineCount = 1;
 static float calcCallTime(lua_State *L);
 static int profiler_stop(lua_State *L);
 
+static lua_State* GetMainThread(lua_State *L)
+{
+    if (lua_isyieldable(L))
+    {
+        lua_State* CoroutineState = L;
+        lua_rawgeti(CoroutineState, LUA_REGISTRYINDEX, LUA_RIDX_MAINTHREAD);
+        L = lua_tothread(CoroutineState, -1);
+        lua_pop(CoroutineState, 1);
+    }
+    return L;
+}
+
+static void AddProfileState(lua_State *L, lprofP_STATE* ProfileState)
+{
+    lua_State* MainThread = GetMainThread(L);
+    lua_pushlightuserdata(MainThread, &profstate_id);
+    lua_gettable(MainThread, LUA_REGISTRYINDEX);
+    if (!lua_istable(MainThread, -1))
+    {
+        lua_pop(MainThread, 1);
+        lua_pushlightuserdata(MainThread, &profstate_id);
+        lua_newtable(MainThread);
+        lua_settable(MainThread, LUA_REGISTRYINDEX);
+        lua_pushlightuserdata(MainThread, &profstate_id);
+        lua_gettable(MainThread, LUA_REGISTRYINDEX);
+    }
+
+    int StatesTableIndex = -1;
+    lua_pushlightuserdata(MainThread, L);
+    StatesTableIndex--;
+    lua_pushlightuserdata(MainThread, ProfileState);
+    StatesTableIndex--;
+    lua_settable(MainThread, StatesTableIndex);
+    StatesTableIndex += 2;
+
+    lua_pop(MainThread, -1 * StatesTableIndex);
+}
+
+lprofP_STATE* GetProfileState(lua_State *L)
+{
+    lprofP_STATE* S = NULL;
+    lua_State* MainThread = GetMainThread(L);
+    lua_pushlightuserdata(MainThread, &profstate_id);
+    lua_gettable(MainThread, LUA_REGISTRYINDEX);
+    int ProfileStateIndex = -1;
+    lua_rawgetp(MainThread, ProfileStateIndex, L);
+    ProfileStateIndex--;
+    if (lua_isuserdata(MainThread, -1))
+    {
+        S = (lprofP_STATE*)lua_touserdata(MainThread, -1);
+    }
+    lua_pop(MainThread, -1 * ProfileStateIndex);
+    return S;
+}
+
 /* called by Lua (via the callhook mechanism) */
 static void callhook(lua_State *L, lua_Debug *ar) {
   int currentline;
   const char* CallerSource = "";
   lua_Debug previous_ar;
-  lprofP_STATE* S;
-  lua_pushlightuserdata(L, &profstate_id);
-  lua_gettable(L, LUA_REGISTRYINDEX);
-  S = (lprofP_STATE*)lua_touserdata(L, -1);
+  lprofP_STATE* S = GetProfileState(L);
+  if (S == NULL)
+  {
+      return;
+  }
 
   if (lua_getstack(L, 1, &previous_ar) == 0) {
     currentline = -1;
@@ -63,7 +119,7 @@ static void callhook(lua_State *L, lua_Debug *ar) {
 		      currentline, CallerSource);
     break;
   case LUA_HOOKRET:
-    lprofP_callhookOUT(S, L, &StatisticsID, &CalleeMetatableID);
+    lprofP_callhookOUT(S, GetMainThread(L), &StatisticsID, &CalleeMetatableID);
     break;
   case LUA_HOOKCOUNT:
       lprofP_callhookCount(S, LineCount);
@@ -81,19 +137,48 @@ static void ClearCachedData(lua_State *L)
     lua_settable(L, LUA_REGISTRYINDEX);
 }
 
+static void DeleteProfileStates(lua_State *L)
+{
+    lprofP_STATE* S;
+    if (GetMainThread(L) != L)
+    {
+        luaL_error(L, "Can't stop profiler from coroutines");
+    }
+
+    lua_pushlightuserdata(L, &profstate_id);
+    lua_gettable(L, LUA_REGISTRYINDEX);
+    int StatesTableIndex = -1;
+    if (lua_istable(L, -1))
+    {
+        lua_pushnil(L);
+        StatesTableIndex--;
+
+        while (lua_next(L, StatesTableIndex) != 0) {
+            StatesTableIndex--;
+
+            S = (lprofP_STATE*)lua_touserdata(L, -1);
+            lua_pop(L, 1);
+            StatesTableIndex++;
+
+            if (S)
+            {
+                free(S);
+            }
+        }
+    }
+    lua_pop(L, -1 * StatesTableIndex);
+
+    lua_pushlightuserdata(L, &profstate_id);
+    lua_pushnil(L);
+    lua_settable(L, LUA_REGISTRYINDEX);
+}
+
 /* Lua function to exit politely the profiler                               */
 /* redefines the lua exit() function to not break the log file integrity    */
 /* The log file is assumed to be valid if the last entry has a stack level  */
 /* of 1 (meaning that the function 'main' has been exited)                  */
 static void exit_profiler(lua_State *L) {
-  lprofP_STATE* S;
-  lua_pushlightuserdata(L, &profstate_id);
-  lua_gettable(L, LUA_REGISTRYINDEX);
-  S = (lprofP_STATE*)lua_touserdata(L, -1);
-  /* leave all functions under execution */
-  while (lprofP_callhookOUT(S, L, &StatisticsID, &CalleeMetatableID)) ;
-
-  ClearCachedData(L);
+    profiler_stop(L);
 
   /* call the original Lua 'exit' function */
   lua_pushlightuserdata(L, &exit_id);
@@ -103,7 +188,7 @@ static void exit_profiler(lua_State *L) {
 
 /* Our new coroutine.create function  */
 /* Creates a new profile state for the coroutine */
-#if 0
+#if 1
 static int coroutine_create(lua_State *L) {
   lprofP_STATE* S;
   lua_State *NL = lua_newthread(L);
@@ -113,31 +198,11 @@ static int coroutine_create(lua_State *L) {
   lua_xmove(L, NL, 1);  /* move function from L to NL */
   /* Inits profiler and sets profiler hook for this coroutine */
   S = lprofM_init();
-  lua_pushlightuserdata(L, NL);
-  lua_pushlightuserdata(L, S);
-  lua_settable(L, LUA_REGISTRYINDEX);
-  lua_sethook(NL, (lua_Hook)callhook, LUA_MASKCALL | LUA_MASKRET, 0);
+  AddProfileState(NL, S);
+  lua_sethook(NL, (lua_Hook)callhook, LUA_MASKCALL | LUA_MASKRET | LUA_MASKCOUNT, LineCount);
   return 1;	
 }
 #endif
-
-static int profiler_pause(lua_State *L) {
-  lprofP_STATE* S;
-  lua_pushlightuserdata(L, &profstate_id);
-  lua_gettable(L, LUA_REGISTRYINDEX);
-  S = (lprofP_STATE*)lua_touserdata(L, -1);
-  lprofM_pause_function(S);
-  return 0;
-}
-
-static int profiler_resume(lua_State *L) {
-  lprofP_STATE* S;
-  lua_pushlightuserdata(L, &profstate_id);
-  lua_gettable(L, LUA_REGISTRYINDEX);
-  S = (lprofP_STATE*)lua_touserdata(L, -1);
-  lprofM_pause_function(S);
-  return 0;
-}
 
 static int profiler_GetInfo(lua_State *L)
 {
@@ -181,34 +246,51 @@ static const luaL_Reg CalleeFuncs[] = {
     { NULL, NULL }
 };
 
+static int IsRunning(lua_State *L)
+{
+    lua_State* MainThread = GetMainThread(L);
+    if (L != MainThread)
+    {
+        luaL_error(L, "Can't start profiler from coroutines");
+    }
+    lua_pushlightuserdata(MainThread, &profstate_id);
+    lua_gettable(MainThread, LUA_REGISTRYINDEX);
+    int result = !lua_isnil(MainThread, -1);
+    lua_pop(MainThread, 1);
+    return result;
+}
+
 static int profiler_init(lua_State *L) {
   lprofP_STATE* S;
-  const char* outfile;
   float function_call_time;
 
-  lua_pushlightuserdata(L, &profstate_id);
-  lua_gettable(L, LUA_REGISTRYINDEX);
-  if(!lua_isnil(L, -1)) {
+  if(IsRunning(L)) {
     profiler_stop(L);
   }
-  lua_pop(L, 1);
 
   function_call_time = calcCallTime(L);
 
-  outfile = NULL;
-  if(lua_gettop(L) >= 1)
-    outfile = luaL_checkstring(L, 1);
-
   /* init with default file name and printing a header line */
-  if (!(S=lprofP_init_core_profiler(outfile, 1, function_call_time))) {
+  if (!(S=lprofP_init_core_profiler(function_call_time))) {
     return luaL_error(L,"LuaProfiler error: output file could not be opened!");
   }
 
   lua_sethook(L, (lua_Hook)callhook, LUA_MASKCALL | LUA_MASKRET | LUA_MASKCOUNT, LineCount);
 
-  lua_pushlightuserdata(L, &profstate_id);
-  lua_pushlightuserdata(L, S);
-  lua_settable(L, LUA_REGISTRYINDEX);
+  AddProfileState(L, S);
+
+  int n = lua_gettop(L);
+  for (int index = 1; index <= n; index++)
+  {
+      if (!lua_isthread(L, index))
+      {
+          luaL_error(L, "Only support coroutine param");
+      }
+      lua_State* Coro = lua_tothread(L, index);
+      lprofP_STATE* CoroState = lprofM_init();
+      lua_sethook(Coro, (lua_Hook)callhook, LUA_MASKCALL | LUA_MASKRET | LUA_MASKCOUNT, LineCount);
+      AddProfileState(Coro, CoroState);
+  }
 
   lua_pushlightuserdata(L, &StatisticsID);
   lua_newtable(L);
@@ -228,7 +310,7 @@ static int profiler_init(lua_State *L) {
   lua_pushcfunction(L, (lua_CFunction)exit_profiler);
   lua_settable(L, -3);
 
-#if 0
+#if 1
   /* use our own coroutine.create function instead */
   lua_getglobal(L, "coroutine");
   lua_pushstring(L, "create");
@@ -249,24 +331,10 @@ static int profiler_init(lua_State *L) {
 extern void lprofP_close_core_profiler(lprofP_STATE* S);
 
 static int profiler_stop(lua_State *L) {
-  lprofP_STATE* S;
   lua_sethook(L, (lua_Hook)callhook, 0, 0);
-  lua_pushlightuserdata(L, &profstate_id);
-  lua_gettable(L, LUA_REGISTRYINDEX);
-  if(!lua_isnil(L, -1)) {
-    S = (lprofP_STATE*)lua_touserdata(L, -1);
-    /* leave all functions under execution */
-    while (lprofP_callhookOUT(S, L, &StatisticsID, &CalleeMetatableID));
-    lprofP_close_core_profiler(S);
-    lua_pushlightuserdata(L, &profstate_id);
-    lua_pushnil(L);
-    lua_settable(L, LUA_REGISTRYINDEX);
-    lua_pushboolean(L, 1);
-  } else { lua_pushboolean(L, 0); }
-
+  DeleteProfileStates(L);
   ClearCachedData(L);
-
-  return 1;
+  return 0;
 }
 
 /* calculates the approximate time Lua takes to call a function */
@@ -296,8 +364,6 @@ static float calcCallTime(lua_State *L) {
 }
 
 static const luaL_Reg prof_funcs[] = {
-  { "pause", profiler_pause },
-  { "resume", profiler_resume },
   { "start", profiler_init },
   { "GetInfo", profiler_GetInfo },
   { "stop", profiler_stop },

@@ -40,5 +40,5 @@ int  lprofP_callhookCount(lprofP_STATE* S, int LineCount);
 
 /* opens the log file */
 /* returns true if the file could be opened */
-lprofP_STATE* lprofP_init_core_profiler(const char *_out_filename, int isto_printheader, float _function_call_time);
+lprofP_STATE* lprofP_init_core_profiler(float _function_call_time);
 

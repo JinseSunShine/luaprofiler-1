@@ -95,7 +95,7 @@ int lprofP_callhookCount(lprofP_STATE* S, int LineCount) {
     return 0;
 }
 
-void GetOrCreateTable(lua_State *L, const char* KeyName)
+void GetOrAddTable(lua_State *L, const char* KeyName)
 {
     int ParentIndex = -1;
     if (lua_istable(L, ParentIndex))
@@ -126,7 +126,7 @@ void GetOrCreateTable(lua_State *L, const char* KeyName)
     }
 }
 
-void AddCalleeMeta(lua_State *L, int* CalleeMetaPtr)
+void GetOrAddCalleeMeta(lua_State *L, int* CalleeMetaPtr)
 {
     int CalleeIndex = -1;
 
@@ -169,7 +169,7 @@ void GetOrCreateCallee(lua_State *L, int* CalleeMetaPtr, const char* CalleeName)
         Info->TotalStep = 0;
         Info->TotalTime = 0;
 
-        AddCalleeMeta(L, CalleeMetaPtr);
+        GetOrAddCalleeMeta(L, CalleeMetaPtr);
 
         lua_settable(L, FuncInfoIndex);
         FuncInfoIndex += 2;
@@ -217,7 +217,7 @@ int lprofP_callhookOUT(lprofP_STATE* S, lua_State *L, int* StatisticsIDPtr, int*
           char* FuncFullName = malloc(NameSize);
           snprintf(FuncFullName, NameSize, "%s@%s:%li", FuncName, FuncSource, info->line_defined);
 
-          GetOrCreateTable(L, FuncFullName);
+          GetOrAddTable(L, FuncFullName);
           BaseIndex--;
 
           CalleeInfo* Info = NULL;
@@ -250,7 +250,7 @@ int lprofP_callhookOUT(lprofP_STATE* S, lua_State *L, int* StatisticsIDPtr, int*
 
 /* opens the log file */
 /* returns true if the file could be opened */
-lprofP_STATE* lprofP_init_core_profiler(const char *_out_filename, int isto_printheader, float _function_call_time) {
+lprofP_STATE* lprofP_init_core_profiler(float _function_call_time) {
   lprofP_STATE* S;
 
   function_call_time = _function_call_time;
