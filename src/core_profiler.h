@@ -23,14 +23,15 @@ Design (using the Lua callhook mechanism) :
 
 typedef struct CalleeInfo CalleeInfo;
 struct CalleeInfo {
-    size_t Count;
-    size_t LocalStep;
-    size_t TotalStep;
+    unsigned StackLevel;
+    unsigned Count;
+    unsigned LocalStep;
+    unsigned TotalStep;
     float TotalTime;    
 };
 
 /* computes new stack and new timer */
-void lprofP_callhookIN(lprofP_STATE* S, char *func_name, char *file, int linedefined, int currentline, const char *CallerFile);
+void lprofP_callhookIN(lprofP_STATE* S, char *func_name, char *file, int linedefined, int currentline, const char *CallerFile, int IsTailCall);
 
 /* pauses all timers to write a log line and computes the new stack */
 /* returns if there is another function in the stack */

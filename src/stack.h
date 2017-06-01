@@ -27,8 +27,9 @@ struct lprofS_sSTACK_RECORD {
     const char* CallerSource;
 	float local_time;
 	float total_time;
-    size_t local_step;
-    size_t total_step;
+    unsigned local_step;
+    unsigned total_step;
+    int IsTailCall;
 	lprofS_STACK_RECORD *next;
 };
 

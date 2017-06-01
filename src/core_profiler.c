@@ -81,9 +81,9 @@ static void formats(char *s) {
 
 
 /* computes new stack and new timer */
-void lprofP_callhookIN(lprofP_STATE* S, char *func_name, char *file, int linedefined, int currentline, const char *CallerFile) {
+void lprofP_callhookIN(lprofP_STATE* S, char *func_name, char *file, int linedefined, int currentline, const char *CallerFile, int IsTailCall) {
   S->stack_level++;
-  lprofM_enter_function(S, file, func_name, linedefined, currentline, CallerFile);
+  lprofM_enter_function(S, file, func_name, linedefined, currentline, CallerFile, IsTailCall);
 }
 
 int lprofP_callhookCount(lprofP_STATE* S, int LineCount) {
@@ -145,7 +145,7 @@ void GetOrAddCalleeMeta(lua_State *L, int* CalleeMetaPtr)
     }
 }
 
-void GetOrCreateCallee(lua_State *L, int* CalleeMetaPtr, const char* CalleeName)
+void GetOrCreateCallee(lua_State *L, int* CalleeMetaPtr, const char* CalleeName, int StackLevel)
 {
     int FuncInfoIndex = -1;
     lua_pushstring(L, CalleeName);
@@ -163,7 +163,7 @@ void GetOrCreateCallee(lua_State *L, int* CalleeMetaPtr, const char* CalleeName)
 
         CalleeInfo* Info = (CalleeInfo*)lua_newuserdata(L, sizeof(CalleeInfo));
         FuncInfoIndex--;
-
+        Info->StackLevel = StackLevel;
         Info->Count = 0;
         Info->LocalStep = 0;
         Info->TotalStep = 0;
@@ -184,59 +184,63 @@ void GetOrCreateCallee(lua_State *L, int* CalleeMetaPtr, const char* CalleeName)
 /* pauses all timers to write a log line and computes the new stack */
 /* returns if there is another function in the stack */
 int lprofP_callhookOUT(lprofP_STATE* S, lua_State *L, int* StatisticsIDPtr, int* CalleeMetaPtr) {
+   
+    do 
+    {
+        if (S->stack_level == 0) {
+        return 0;
+        }
+        S->stack_level--;
 
-  if (S->stack_level == 0) {
-    return 0;
-  }
+      /* 0: do not resume the parent function's timer yet... */
+      info = lprofM_leave_function(S, 0);
+      /* writing a log may take too long to be computed with the function's time ...*/
+      lprofM_pause_total_time(S);
+      info->local_time += function_call_time;
+      info->total_time += function_call_time;
 
-  S->stack_level--;
-
-  /* 0: do not resume the parent function's timer yet... */
-  info = lprofM_leave_function(S, 0);
-  /* writing a log may take too long to be computed with the function's time ...*/
-  lprofM_pause_total_time(S);
-  info->local_time += function_call_time;
-  info->total_time += function_call_time;
-
-  if (S->stack_top)
-  {
-      S->stack_top->total_step += info->total_step;
-  }
-  
-  if (StatisticsIDPtr)
-  {
-      lua_pushlightuserdata(L, StatisticsIDPtr);
-      lua_gettable(L, LUA_REGISTRYINDEX);
-      int BaseIndex = -1;
-      if (lua_istable(L, -1))
+      if (S->stack_top)
       {
-          char* FuncName = info->function_name;
-          char* FuncSource = info->file_defined;
-          formats(FuncSource);
-          const size_t NameSize = strlen(FuncName) + 1 + strlen(FuncSource) + 10;
-          char* FuncFullName = malloc(NameSize);
-          snprintf(FuncFullName, NameSize, "%s@%s:%li", FuncName, FuncSource, info->line_defined);
-
-          GetOrAddTable(L, FuncFullName);
-          BaseIndex--;
-
-          CalleeInfo* Info = NULL;
-          const size_t CalleeSize = strlen(info->CallerSource) + 10;
-          char* Callee = malloc(CalleeSize);
-          snprintf(Callee, CalleeSize, "%s:%li", info->CallerSource, info->current_line);
-
-          GetOrCreateCallee(L, CalleeMetaPtr, Callee);
-          BaseIndex--;
-            Info = (CalleeInfo*)lua_touserdata(L, -1);
-            Info->Count += 1;
-            Info->LocalStep += info->local_step;
-            Info->TotalStep += info->total_step;
-            Info->TotalTime += info->total_time;
-          free(FuncFullName);
-          free(Callee);
+          S->stack_top->total_step += info->total_step;
       }
-      lua_pop(L, -1 * BaseIndex);
-  }
+  
+      if (StatisticsIDPtr)
+      {
+          lua_pushlightuserdata(L, StatisticsIDPtr);
+          lua_gettable(L, LUA_REGISTRYINDEX);
+          int BaseIndex = -1;
+          if (lua_istable(L, -1))
+          {
+              char* FuncName = info->function_name;
+              char* FuncSource = info->file_defined;
+              formats(FuncSource);
+              const size_t NameSize = strlen(FuncName) + 1 + strlen(FuncSource) + 10;
+              char* FuncFullName = malloc(NameSize);
+              snprintf(FuncFullName, NameSize, "%s@%s:%li", FuncName, FuncSource, info->line_defined);
+
+              GetOrAddTable(L, FuncFullName);
+              BaseIndex--;
+
+              CalleeInfo* Info = NULL;
+              const size_t CalleeSize = strlen(info->CallerSource) + 10;
+              char* Callee = malloc(CalleeSize);
+              snprintf(Callee, CalleeSize, "%s:%li", info->CallerSource, info->current_line);
+
+              GetOrCreateCallee(L, CalleeMetaPtr, Callee, S->stack_level);
+              BaseIndex--;
+                Info = (CalleeInfo*)lua_touserdata(L, -1);
+                Info->Count += 1;
+                Info->LocalStep += info->local_step;
+                Info->TotalStep += info->total_step;
+                Info->TotalTime += info->total_time;
+              free(FuncFullName);
+              free(Callee);
+          }
+          lua_pop(L, -1 * BaseIndex);
+      }
+
+    } while (info->IsTailCall);
+
 
   /* ... now it's ok to resume the timer */
   if (S->stack_level != 0) {

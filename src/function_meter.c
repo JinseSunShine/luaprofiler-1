@@ -137,7 +137,7 @@ void lprofM_resume_function(lprofP_STATE* S) {
 
 /* the local time for the parent function is paused  */
 /* and the local and total time markers are started */
-void lprofM_enter_function(lprofP_STATE* S, char *file_defined, char *fcn_name, long linedefined, long currentline, const char *CallerFile) {
+void lprofM_enter_function(lprofP_STATE* S, char *file_defined, char *fcn_name, long linedefined, long currentline, const char *CallerFile, int IsTailCall) {
   char* prev_name;
   char* cur_name;
   /* the flow has changed to another function: */
@@ -168,6 +168,7 @@ void lprofM_enter_function(lprofP_STATE* S, char *file_defined, char *fcn_name, 
   newf.total_time = 0.0;
   newf.local_step = 0;
   newf.total_step = 0;
+  newf.IsTailCall = IsTailCall;
   lprofS_push(&(S->stack_top), newf);
 }
 
