@@ -38,12 +38,13 @@ a depth-first search recursive algorithm).
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <string>
 
 #include "function_meter.h"
 
 #include "core_profiler.h"
 
-    /* default log name (%s is used to place a random string) */
+/* default log name (%s is used to place a random string) */
 #define OUT_FILENAME "lprof_%s.out"
 
 #define MAX_FUNCTION_NAME_LENGTH 200
@@ -57,232 +58,146 @@ static float function_call_time;
 /* output a line to the log file, using 'printf()' syntax */
 /* assume the timer is off */
 static void output(const char *format, ...) {
-  va_list ap;
-  va_start(ap, format);
-  vfprintf(outf, format, ap);
-  va_end(ap);
+    va_list ap;
+    va_start(ap, format);
+    vfprintf(outf, format, ap);
+    va_end(ap);
 
-  /* write now to avoid delays when the timer is on */
-  fflush(outf);
+    /* write now to avoid delays when the timer is on */
+    fflush(outf);
 }
 
 
 /* do not allow a string with '\n' and '|' (log file format reserved chars) */
 /* - replace them by ' '                                                    */
 static void formats(char *s) {
-  if (!s)
-    return;
-  size_t StrLen = strlen(s);
-  for (size_t i = 0; i < StrLen; i++) {
-    if ((s[i] == '|') || (s[i] == '\n'))
-      s[i] = ' ';
-  }
+    if (!s)
+        return;
+    size_t StrLen = strlen(s);
+    for (size_t i = 0; i < StrLen; i++) {
+        if ((s[i] == '|') || (s[i] == '\n'))
+            s[i] = ' ';
+    }
 }
 
 
 /* computes new stack and new timer */
-void lprofP_callhookIN(lprofP_STATE* S, char *func_name, char *file, int linedefined, int currentline, const char *CallerFile, int IsTailCall) {
-  S->stack_level++;
-  lprofM_enter_function(S, file, func_name, linedefined, currentline, CallerFile, IsTailCall);
+void lprofP_callhookIN(lprofP_STATE* S, char *func_name, char *file, int linedefined, int currentline, const char *CallerFile, int IsTailCall, long TotalMemory) {
+    S->stack_level++;
+    lprofM_enter_function(S, file, func_name, linedefined, currentline, CallerFile, IsTailCall, TotalMemory);
 }
 
 int lprofP_callhookCount(lprofP_STATE* S, int LineCount) {
 
     if (S->stack_top) {
         S->stack_top->local_step += LineCount;
-        S->stack_top->total_step += LineCount;
     }
     return 0;
 }
 
-void GetOrAddTable(lua_State *L, const char* KeyName)
-{
-    int ParentIndex = -1;
-    if (lua_istable(L, ParentIndex))
-    {
-        lua_pushstring(L, KeyName);
-        ParentIndex--;
-        lua_gettable(L, ParentIndex);
-
-        if (lua_isnil(L, -1))
-        {
-            lua_pop(L, 1);
-            ParentIndex++;
-
-            lua_pushstring(L, KeyName);
-            ParentIndex--;
-
-            lua_newtable(L);
-            ParentIndex--;
-
-            lua_settable(L, ParentIndex);
-            ParentIndex += 2;
-
-            lua_pushstring(L, KeyName);
-            ParentIndex--;
-
-            lua_gettable(L, ParentIndex);
-        }
-    }
-}
-
-void GetOrAddCalleeMeta(lua_State *L, int* CalleeMetaPtr)
-{
-    int CalleeIndex = -1;
-
-    lua_pushlightuserdata(L, CalleeMetaPtr);
-    CalleeIndex--;
-
-    lua_gettable(L, LUA_REGISTRYINDEX);
-
-    if (lua_isnil(L, -1))
-    {
-        lua_pop(L, 1);
-    }
-    else
-    {
-        lua_setmetatable(L, CalleeIndex);
-    }
-}
-
-void GetOrCreateCallee(lua_State *L, int* CalleeMetaPtr, const char* CalleeName, int StackLevel)
-{
-    int FuncInfoIndex = -1;
-    lua_pushstring(L, CalleeName);
-    FuncInfoIndex--;
-
-    lua_gettable(L, FuncInfoIndex);
-
-    if (lua_isnil(L, -1))
-    {
-        lua_pop(L, 1);
-        FuncInfoIndex++;
-
-        lua_pushstring(L, CalleeName);
-        FuncInfoIndex--;
-
-        CalleeInfo* Info = (CalleeInfo*)lua_newuserdata(L, sizeof(CalleeInfo));
-        FuncInfoIndex--;
-        Info->StackLevel = StackLevel;
-        Info->Count = 0;
-        Info->LocalStep = 0;
-        Info->TotalStep = 0;
-        Info->TotalTime = 0;
-
-        GetOrAddCalleeMeta(L, CalleeMetaPtr);
-
-        lua_settable(L, FuncInfoIndex);
-        FuncInfoIndex += 2;
-
-        lua_pushstring(L, CalleeName);
-        FuncInfoIndex--;
-
-        lua_gettable(L, FuncInfoIndex);
-    }
-}
-
 /* pauses all timers to write a log line and computes the new stack */
 /* returns if there is another function in the stack */
-int lprofP_callhookOUT(lprofP_STATE* S, lua_State *L, int* StatisticsIDPtr, int* CalleeMetaPtr) {
-   
-    do 
+int lprofP_callhookOUT(lprofP_STATE* S, ThreadFuncCalleeInfoMap& InfoMap, long TotalMemory) {
+
+    do
     {
         if (S->stack_level == 0) {
-        return 0;
+            return 0;
         }
         S->stack_level--;
 
-      /* 0: do not resume the parent function's timer yet... */
-      info = lprofM_leave_function(S, 0);
-      /* writing a log may take too long to be computed with the function's time ...*/
-      lprofM_pause_total_time(S);
-      info->local_time += function_call_time;
-      info->total_time += function_call_time;
+        /* 0: do not resume the parent function's timer yet... */
+        info = lprofM_leave_function(S, 0, TotalMemory);
+        /* writing a log may take too long to be computed with the function's time ...*/
+        lprofM_pause_total_time(S);
 
-      if (S->stack_top)
-      {
-          S->stack_top->total_step += info->total_step;
-      }
-  
-      if (StatisticsIDPtr)
-      {
-          lua_pushlightuserdata(L, StatisticsIDPtr);
-          lua_gettable(L, LUA_REGISTRYINDEX);
-          int BaseIndex = -1;
-          if (lua_istable(L, -1))
-          {
-              char* FuncName = info->function_name;
-              char* FuncSource = info->file_defined;
-              formats(FuncSource);
-              const size_t NameSize = strlen(FuncName) + 1 + strlen(FuncSource) + 10;
-              char* FuncFullName = malloc(NameSize);
-              snprintf(FuncFullName, NameSize, "%s@%s:%li", FuncName, FuncSource, info->line_defined);
+        info->local_time += function_call_time;
+        info->total_time += function_call_time;
 
-              GetOrAddTable(L, FuncFullName);
-              BaseIndex--;
+        auto ThreadIndexIter = InfoMap.find(S->ThreadIndex);
+        if (ThreadIndexIter == InfoMap.end())
+        {
+            InfoMap[S->ThreadIndex] = FuncCalleeInfoMap();
+        }
+        FuncCalleeInfoMap& Func2CalleeInfo = InfoMap[S->ThreadIndex];
 
-              CalleeInfo* Info = NULL;
-              const size_t CalleeSize = strlen(info->CallerSource) + 10;
-              char* Callee = malloc(CalleeSize);
-              snprintf(Callee, CalleeSize, "%s:%li", info->CallerSource, info->current_line);
+        char* FuncName = info->function_name;
+        char* FuncSource = info->file_defined;
+        formats(FuncSource);
+        std::string FuncFullName;
+        FuncFullName.append(FuncName);
+        FuncFullName.append(":");
+        FuncFullName.append(FuncSource);
+        FuncFullName.append(":");
+        FuncFullName.append(std::to_string(info->line_defined));
 
-              GetOrCreateCallee(L, CalleeMetaPtr, Callee, S->stack_level);
-              BaseIndex--;
-                Info = (CalleeInfo*)lua_touserdata(L, -1);
-                Info->Count += 1;
-                Info->LocalStep += info->local_step;
-                Info->TotalStep += info->total_step;
-                Info->TotalTime += info->total_time;
-              free(FuncFullName);
-              free(Callee);
-          }
-          lua_pop(L, -1 * BaseIndex);
-      }
+        auto CalleeInfoMapIter = Func2CalleeInfo.find(FuncFullName);
+        if (CalleeInfoMapIter == Func2CalleeInfo.end())
+        {
+            Func2CalleeInfo[FuncFullName] = CalleeInfoMap();
+        }
+        CalleeInfoMap& Callee2Info = Func2CalleeInfo[FuncFullName];
+
+        std::string CalleePos;
+        CalleePos.append(info->CallerSource);
+        CalleePos.append(":");
+        CalleePos.append(std::to_string(info->current_line));
+
+        auto InfoIter = Callee2Info.find(CalleePos);
+        if (InfoIter == Callee2Info.end())
+        {
+            Callee2Info[CalleePos] = CalleeInfo();
+            Callee2Info[CalleePos].StackLevel = S->stack_level;
+        }
+        CalleeInfo& CallInfo = Callee2Info[CalleePos];
+        CallInfo.Count++;
+        CallInfo.LocalStep += info->local_step;
+        CallInfo.TotalTime += info->total_time;
+        CallInfo.LocalMemoryDelta += info->LocalMemoryDelta;
 
     } while (info->IsTailCall);
 
 
-  /* ... now it's ok to resume the timer */
-  if (S->stack_level != 0) {
-    lprofM_resume_function(S);
-  }
+    /* ... now it's ok to resume the timer */
+    if (S->stack_level != 0) {
+        lprofM_resume_function(S);
+    }
 
-  return 1;
+    return 1;
 
 }
 
 
 /* opens the log file */
 /* returns true if the file could be opened */
-lprofP_STATE* lprofP_init_core_profiler(float _function_call_time) {
-  lprofP_STATE* S;
+lprofP_STATE* lprofP_init_core_profiler(float _function_call_time, int ThreadIndex) {
+    lprofP_STATE* S;
 
-  function_call_time = _function_call_time;
+    function_call_time = _function_call_time;
 
-  /* initialize the 'function_meter' */
-  S = lprofM_init();
-  if(!S) {
-    return 0;
-  }
-    
-  return S;
+    /* initialize the 'function_meter' */
+    S = lprofM_init(ThreadIndex);
+    if (!S) {
+        return 0;
+    }
+
+    return S;
 }
 
 void lprofP_close_core_profiler(lprofP_STATE* S) {
-  if(S) free(S);
+    if (S) free(S);
 }
 
-lprofP_STATE* lprofP_create_profiler(float _function_call_time) {
-  lprofP_STATE* S;
+lprofP_STATE* lprofP_create_profiler(float _function_call_time, int ThreadIndex) {
+    lprofP_STATE* S;
 
-  function_call_time = _function_call_time;
+    function_call_time = _function_call_time;
 
-  /* initialize the 'function_meter' */
-  S = lprofM_init();
-  if(!S) {
-    return 0;
-  }
-    
-  return S;
+    /* initialize the 'function_meter' */
+    S = lprofM_init(ThreadIndex);
+    if (!S) {
+        return 0;
+    }
+
+    return S;
 }
-

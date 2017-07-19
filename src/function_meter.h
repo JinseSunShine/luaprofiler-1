@@ -48,7 +48,7 @@ void lprofM_resume_function(lprofP_STATE* S);
 
 /* the local time for the parent function is paused */
 /* and the local and total time markers are started */
-void lprofM_enter_function(lprofP_STATE* S, char *file_defined, char *fcn_name, long linedefined, long currentline, const char *CallerFile, int IsTailCall);
+void lprofM_enter_function(lprofP_STATE* S, char *file_defined, char *fcn_name, long linedefined, long currentline, const char *CallerFile, int IsTailCall, long TotalMemory);
 
 /* computes times and remove the top of the stack         */
 /* 'isto_resume' specifies if the parent function's timer */
@@ -58,7 +58,7 @@ void lprofM_enter_function(lprofP_STATE* S, char *file_defined, char *fcn_name, 
 /* returns the funcinfo structure                         */
 /* warning: use it before another call to this function,  */
 /* because the funcinfo will be overwritten               */
-lprofS_STACK_RECORD *lprofM_leave_function(lprofP_STATE* S, int isto_resume);
+lprofS_STACK_RECORD *lprofM_leave_function(lprofP_STATE* S, int isto_resume, long TotalMemory);
 
 /* init stack */
-lprofP_STATE* lprofM_init();
+lprofP_STATE* lprofM_init(int ThreadIndex);

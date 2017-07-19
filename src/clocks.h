@@ -17,4 +17,4 @@ Design:
 #include <time.h>
 
 void lprofC_start_timer(clock_t *time_marker);
-float lprofC_get_seconds(clock_t time_marker);
+float lprofC_get_milliseconds(clock_t time_marker);

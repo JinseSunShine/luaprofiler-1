@@ -46,18 +46,33 @@ Design:
 
 #endif
 
+#ifdef WIN32
+#include <Windows.h>
+LARGE_INTEGER frequency;        // ticks per second
+LARGE_INTEGER tStart, tEnd;           // ticks
+#endif
 
 void lprofC_start_timer(clock_t *time_marker) {
-        *time_marker = times(&t);
+#ifdef WIN32
+    QueryPerformanceCounter(&tStart);
+#else
+    *time_marker = times(&t);
+#endif
 }
 
 static clock_t get_clocks(clock_t time_marker) {
         return times(&t) - time_marker;
 }
 
-float lprofC_get_seconds(clock_t time_marker) {
-clock_t clocks;
-        clocks = get_clocks(time_marker);
-        return (float)clocks / (float)CLOCKS_PER_SEC;
+float lprofC_get_milliseconds(clock_t time_marker) {
+#ifdef WIN32
+    QueryPerformanceCounter(&tEnd);
+    QueryPerformanceFrequency(&frequency);
+    return 1000.f * (tEnd.QuadPart - tStart.QuadPart) / frequency.QuadPart;
+#else
+    clock_t clocks;
+    clocks = get_clocks(time_marker);
+    return 1000.f * clocks / (float)CLOCKS_PER_SEC;
+#endif
 }
 

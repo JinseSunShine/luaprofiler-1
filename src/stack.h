@@ -25,11 +25,12 @@ struct lprofS_sSTACK_RECORD {
 	long line_defined;
 	long current_line;
     const char* CallerSource;
-	float local_time;
-	float total_time;
+	float local_time; // millisecond
+	float total_time;// millisecond
     unsigned local_step;
-    unsigned total_step;
     int IsTailCall;
+    long TotalMemory;
+    int LocalMemoryDelta;
 	lprofS_STACK_RECORD *next;
 };
 
@@ -39,6 +40,7 @@ typedef struct lprofP_sSTATE lprofP_STATE;
 	
 struct lprofP_sSTATE {
    int stack_level;
+   int ThreadIndex;
    lprofS_STACK stack_top;
 };
 
