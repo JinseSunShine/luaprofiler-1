@@ -13,6 +13,8 @@ lua50_profiler.c:
 #include <stdlib.h>
 #include <string.h>
 
+#include <stack>
+
 #include "clocks.h"
 #include "core_profiler.h"
 #include "function_meter.h"
@@ -25,6 +27,10 @@ static bool IsRunningProfiler = false;
 
 ThreadFuncCalleeInfoMap ProfilerInfoMap;
 LuaState2ProfilerStateMap LuaState2ProfilerState;
+
+lua_Alloc DefaultAllocFunc = NULL;
+void*   DefaultAllocUserData = NULL;
+lprofP_STATE* CurThreadState = NULL;
 
 static int LineCount = 1;
 static int ThreadCount = 0;
@@ -59,9 +65,21 @@ lprofP_STATE* GetProfileState(lua_State *L)
     return NULL;
 }
 
+void * LuaAllocWrapper (void *ud, void *ptr, size_t osize, size_t nsize)
+{
+    if (CurThreadState && CurThreadState->stack_top)
+    {
+        if (ptr == NULL && osize >= LUA_TNIL && osize < LUA_NUMTAGS)
+        {
+            CurThreadState->stack_top->MemoryAllocated += nsize;
+        }
+    }
+    return DefaultAllocFunc(ud, ptr, osize, nsize);
+}
+
 long GetCurTotalMemory(lua_State *L)
 {
-    const long Kilo = 1000;
+    const long Kilo = 1024;
     const int NoUseArg = 0;
     return lua_gc(L, LUA_GCCOUNT, NoUseArg) * Kilo + lua_gc(L, LUA_GCCOUNTB, NoUseArg);
 }
@@ -76,6 +94,7 @@ static void callhook(lua_State *L, lua_Debug *ar) {
     {
         return;
     }
+    CurThreadState = S;
 
     if (lua_getstack(L, 1, &previous_ar) == 0) {
         currentline = -1;
@@ -106,6 +125,10 @@ static void callhook(lua_State *L, lua_Debug *ar) {
         break;
     case LUA_HOOKRET:
         lprofP_callhookOUT(S, ProfilerInfoMap, TotalMemory);
+        //if (S->stack_level == 0)
+        //{
+        //    CurThreadState = NULL;
+        //}
         break;
     case LUA_HOOKCOUNT:
         lprofP_callhookCount(S, LineCount);
@@ -173,6 +196,8 @@ static int profiler_init(lua_State *L) {
         profiler_stop(L);
     }
 
+    DefaultAllocFunc = lua_getallocf(L, &DefaultAllocUserData);
+    lua_setallocf(L, LuaAllocWrapper, DefaultAllocUserData);
 
     function_call_time = calcCallTime(L);
 
@@ -202,6 +227,28 @@ static int profiler_init(lua_State *L) {
         lprofP_STATE* CoroState = lprofM_init(ThreadCount++);
         lua_sethook(Coro, (lua_Hook)callhook, LUA_MASKCALL | LUA_MASKRET | LUA_MASKCOUNT, LineCount);
         AddProfileState(Coro, CoroState);
+        if (lua_status(Coro) == LUA_YIELD)
+        {
+            lua_Debug AR;
+            std::stack<lua_Debug> DebugStack;
+            int StackLevel = 0;
+            while (lua_getstack(Coro, StackLevel++, &AR))
+            {
+                DebugStack.push(AR);
+            }
+
+            const char* CallerFile = "";
+            while (!DebugStack.empty())
+            {
+                lua_Debug CurAR = DebugStack.top();
+                DebugStack.pop();
+                lua_getinfo(L, "nSl", &CurAR);
+                lprofP_callhookIN(CoroState, (char *)CurAR.name,
+                    (char *)CurAR.source, CurAR.linedefined,
+                    CurAR.currentline, CallerFile, 0, 0);
+                CallerFile = CurAR.source;
+            }
+        }
     }
 
     /* use our own exit function instead */
@@ -253,6 +300,11 @@ static int profiler_stop(lua_State *L) {
         lua_State* Coro = lua_tothread(L, index);
         lua_sethook(Coro, (lua_Hook)callhook, 0, 0);
     }
+
+    lua_setallocf(L, DefaultAllocFunc, DefaultAllocUserData);
+    DefaultAllocFunc = NULL;
+    DefaultAllocUserData = NULL;
+
     DeleteProfileStates(L);
 
     lua_getglobal(L, "coroutine");
@@ -296,8 +348,8 @@ static int profiler_stop(lua_State *L) {
                     lua_pushnumber(L, CalleeInfoIter.second.TotalTime);
                     lua_settable(L, -3);
 
-                    lua_pushstring(L, "LocalMemoryDelta");
-                    lua_pushnumber(L, CalleeInfoIter.second.LocalMemoryDelta);
+                    lua_pushstring(L, "MemoryAllocated");
+                    lua_pushnumber(L, CalleeInfoIter.second.MemoryAllocated);
                     lua_settable(L, -3);
                 }
 
@@ -347,24 +399,29 @@ static const luaL_Reg prof_funcs[] = {
   { NULL, NULL }
 };
 
-int luaopen_profiler(lua_State *L) {
+extern "C"
+{
+
+    int luaopen_profiler(lua_State *L) {
 #if LUA_VERSION_NUM > 501 && !defined(LUA_COMPAT_MODULE)
-    lua_newtable(L);
-    luaL_setfuncs(L, prof_funcs, 0);
+        lua_newtable(L);
+        luaL_setfuncs(L, prof_funcs, 0);
 #else
-    luaL_openlib(L, "profiler", prof_funcs, 0);
+        luaL_openlib(L, "profiler", prof_funcs, 0);
 #endif
-    lua_pushliteral(L, "_COPYRIGHT");
-    lua_pushliteral(L, "Copyright (C) 2003-2007 Kepler Project");
-    lua_settable(L, -3);
-    lua_pushliteral(L, "_DESCRIPTION");
-    lua_pushliteral(L, "LuaProfiler is a time profiler designed to help finding bottlenecks in your Lua program.");
-    lua_settable(L, -3);
-    lua_pushliteral(L, "_NAME");
-    lua_pushliteral(L, "LuaProfiler");
-    lua_settable(L, -3);
-    lua_pushliteral(L, "_VERSION");
-    lua_pushliteral(L, "2.0.1");
-    lua_settable(L, -3);
-    return 1;
+        lua_pushliteral(L, "_COPYRIGHT");
+        lua_pushliteral(L, "Copyright (C) 2003-2007 Kepler Project");
+        lua_settable(L, -3);
+        lua_pushliteral(L, "_DESCRIPTION");
+        lua_pushliteral(L, "LuaProfiler is a time profiler designed to help finding bottlenecks in your Lua program.");
+        lua_settable(L, -3);
+        lua_pushliteral(L, "_NAME");
+        lua_pushliteral(L, "LuaProfiler");
+        lua_settable(L, -3);
+        lua_pushliteral(L, "_VERSION");
+        lua_pushliteral(L, "2.0.1");
+        lua_settable(L, -3);
+        return 1;
+    }
+
 }

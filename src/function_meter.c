@@ -155,10 +155,6 @@ void lprofM_enter_function(lprofP_STATE* S, char *file_defined, char *fcn_name, 
             lprofM_pause_total_time(S);
         }
         prev_name = S->stack_top->function_name;
-        if (TotalMemory > S->stack_top->TotalMemory)
-        {
-            S->stack_top->LocalMemoryDelta += (TotalMemory - S->stack_top->TotalMemory);
-        }
     }
     else prev_name = "top level";
     /* measure new function */
@@ -189,7 +185,6 @@ void lprofM_enter_function(lprofP_STATE* S, char *file_defined, char *fcn_name, 
     newf.local_step = 0;
     newf.IsTailCall = IsTailCall;
     newf.TotalMemory = TotalMemory;
-    newf.LocalMemoryDelta = 0;
     lprofS_push(&(S->stack_top), newf);
 }
 
@@ -217,16 +212,11 @@ lprofS_STACK_RECORD *lprofM_leave_function(lprofP_STATE* S, int isto_resume, lon
         leave_ret.local_time = 0;
         leave_ret.total_time = 0;
         lprofM_resume_total_time(S);
-        leave_ret.LocalMemoryDelta = 0;
     }
     else
     {
         compute_local_time(&leave_ret);
         compute_total_time(&leave_ret);
-        if (TotalMemory > leave_ret.TotalMemory)
-        {
-            leave_ret.LocalMemoryDelta += (TotalMemory - leave_ret.TotalMemory);
-        }
     }
 
     if (S->stack_top)

@@ -121,9 +121,9 @@ int lprofP_callhookOUT(lprofP_STATE* S, ThreadFuncCalleeInfoMap& InfoMap, long T
         }
         FuncCalleeInfoMap& Func2CalleeInfo = InfoMap[S->ThreadIndex];
 
-        char* FuncName = info->function_name;
         char* FuncSource = info->file_defined;
         formats(FuncSource);
+        char* FuncName = info->function_name;
         std::string FuncFullName;
         FuncFullName.append(FuncName);
         FuncFullName.append(":");
@@ -153,7 +153,7 @@ int lprofP_callhookOUT(lprofP_STATE* S, ThreadFuncCalleeInfoMap& InfoMap, long T
         CallInfo.Count++;
         CallInfo.LocalStep += info->local_step;
         CallInfo.TotalTime += info->total_time;
-        CallInfo.LocalMemoryDelta += info->LocalMemoryDelta;
+        CallInfo.MemoryAllocated += info->MemoryAllocated;
 
     } while (info->IsTailCall);
 

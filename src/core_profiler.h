@@ -30,7 +30,7 @@ struct CalleeInfo {
     unsigned Count;
     unsigned LocalStep;
     float TotalTime;
-    double LocalMemoryDelta;
+    size_t MemoryAllocated;
 };
 
 typedef std::map<std::string, CalleeInfo> CalleeInfoMap;

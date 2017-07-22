@@ -30,7 +30,7 @@ struct lprofS_sSTACK_RECORD {
     unsigned local_step;
     int IsTailCall;
     long TotalMemory;
-    int LocalMemoryDelta;
+    size_t MemoryAllocated;
 	lprofS_STACK_RECORD *next;
 };
 
