@@ -24,19 +24,35 @@ extern "C"
 }
 #include <map>
 
+typedef std::pair<size_t, size_t> MemorySizeCount;
+typedef std::map<int, MemorySizeCount> TypedMemoryInfo;
+
 typedef struct CalleeInfo CalleeInfo;
 struct CalleeInfo {
     unsigned StackLevel;
     unsigned Count;
     unsigned LocalStep;
     float TotalTime;
-    size_t MemoryAllocated;
+    TypedMemoryInfo MemoryAllocated;
+    CalleeInfo()
+    {
+        StackLevel = 0;
+        Count = 0;
+        LocalStep = 0;
+        TotalTime = 0;
+        for (int ObjType = LUA_TNIL; ObjType < LUA_NUMTAGS; ObjType++)
+        {
+            MemoryAllocated[ObjType] = std::make_pair(0, 0);
+        }
+    }
 };
 
 typedef std::map<std::string, CalleeInfo> CalleeInfoMap;
 typedef std::map<std::string, CalleeInfoMap> FuncCalleeInfoMap;
 typedef std::map<int, FuncCalleeInfoMap> ThreadFuncCalleeInfoMap;
 typedef std::map<lua_State*, lprofP_STATE*> LuaState2ProfilerStateMap;
+typedef std::tuple<int, std::string, std::string, int> TupleThreadFuncCallee;
+typedef std::map<void*, TupleThreadFuncCallee> MemoryAllocInfoMap;
 
 /* computes new stack and new timer */
 void lprofP_callhookIN(lprofP_STATE* S, char *func_name, char *file, int linedefined, int currentline, const char *CallerFile, int IsTailCall, long TotalMemory);
@@ -44,6 +60,12 @@ void lprofP_callhookIN(lprofP_STATE* S, char *func_name, char *file, int linedef
 /* pauses all timers to write a log line and computes the new stack */
 /* returns if there is another function in the stack */
 int  lprofP_callhookOUT(lprofP_STATE* S, ThreadFuncCalleeInfoMap& InfoMap, long TotalMemory);
+
+std::string GetFuncFullName(lprofS_STACK_RECORD *info);
+
+std::string GetCalleePos(lprofS_STACK_RECORD *info);
+
+CalleeInfo& GetCalleeInfo(ThreadFuncCalleeInfoMap& InfoMap, int ThreadIndex, std::string FuncFullName, std::string CalleePos);
 
 int  lprofP_callhookCount(lprofP_STATE* S, int LineCount);
 

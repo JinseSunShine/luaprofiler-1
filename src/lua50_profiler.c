@@ -27,7 +27,7 @@ static bool IsRunningProfiler = false;
 
 ThreadFuncCalleeInfoMap ProfilerInfoMap;
 LuaState2ProfilerStateMap LuaState2ProfilerState;
-
+MemoryAllocInfoMap MemoryAllocInfo;
 lua_Alloc DefaultAllocFunc = NULL;
 void*   DefaultAllocUserData = NULL;
 lprofP_STATE* CurThreadState = NULL;
@@ -67,14 +67,43 @@ lprofP_STATE* GetProfileState(lua_State *L)
 
 void * LuaAllocWrapper (void *ud, void *ptr, size_t osize, size_t nsize)
 {
-    if (CurThreadState && CurThreadState->stack_top)
+    void* pResult = DefaultAllocFunc(ud, ptr, osize, nsize);
+    lprofS_STACK_RECORD * CurStack = CurThreadState ? CurThreadState->stack_top : NULL;
+    if (CurStack)
     {
-        if (ptr == NULL && osize >= LUA_TNIL && osize < LUA_NUMTAGS)
+        if (ptr == NULL && osize > LUA_TNIL && osize < LUA_NUMTAGS)
         {
             CurThreadState->stack_top->MemoryAllocated += nsize;
+            std::string FuncFullName = GetFuncFullName(CurStack);
+            std::string CalleePos = GetCalleePos(CurStack);
+            CalleeInfo& CalleeInfo = GetCalleeInfo(ProfilerInfoMap, CurThreadState->ThreadIndex, FuncFullName, CalleePos);
+            MemorySizeCount& MemorySizeCountPair = CalleeInfo.MemoryAllocated[(int)osize];
+            MemorySizeCountPair.first += nsize;
+            MemorySizeCountPair.second += 1;
+
+            MemoryAllocInfo[pResult] = std::make_tuple(CurThreadState->ThreadIndex, FuncFullName, CalleePos, (int)osize);
         }
     }
-    return DefaultAllocFunc(ud, ptr, osize, nsize);
+
+    if (nsize == 0)
+    {
+        auto AllocInfo = MemoryAllocInfo.find(ptr);
+        if (AllocInfo != MemoryAllocInfo.end())
+        {
+            TupleThreadFuncCallee ThreadFuncCallee = AllocInfo->second;
+            int ThreadIndex = std::get<0>(ThreadFuncCallee);
+            std::string FuncFullName = std::get<1>(ThreadFuncCallee);
+            std::string CalleePos = std::get<2>(ThreadFuncCallee);
+            int ObjType = std::get<3>(ThreadFuncCallee);
+            CalleeInfo& CalleeInfo = GetCalleeInfo(ProfilerInfoMap, ThreadIndex, FuncFullName, CalleePos);
+            MemorySizeCount& MemorySizeCountPair = CalleeInfo.MemoryAllocated[ObjType];
+            MemorySizeCountPair.first -= osize;
+            MemorySizeCountPair.second -= 1;
+            MemoryAllocInfo.erase(ptr);
+        }
+    }
+
+    return pResult;
 }
 
 long GetCurTotalMemory(lua_State *L)
@@ -210,7 +239,7 @@ static int profiler_init(lua_State *L) {
     {
         luaL_error(L, "first param should be LineCount, not '%s'", lua_tostring(L, 1));
     }
-    LineCount = lua_tonumber(L, 1);
+    LineCount = (int)lua_tonumber(L, 1);
 
     lua_sethook(L, (lua_Hook)callhook, LUA_MASKCALL | LUA_MASKRET | LUA_MASKCOUNT, LineCount);
 
@@ -348,8 +377,57 @@ static int profiler_stop(lua_State *L) {
                     lua_pushnumber(L, CalleeInfoIter.second.TotalTime);
                     lua_settable(L, -3);
 
+                    TypedMemoryInfo& MemoryAllocated = CalleeInfoIter.second.MemoryAllocated;
                     lua_pushstring(L, "MemoryAllocated");
-                    lua_pushnumber(L, CalleeInfoIter.second.MemoryAllocated);
+                    lua_newtable(L);
+                    for (int ObjType = LUA_TNIL; ObjType < LUA_NUMTAGS; ObjType++)
+                    {
+                        MemorySizeCount& SizeCountPair = MemoryAllocated[ObjType];
+                        switch (ObjType)
+                        {
+                            case LUA_TNIL:
+                                lua_pushstring(L, "LUA_TNIL");
+                                break;
+                            case LUA_TBOOLEAN:
+                                lua_pushstring(L, "LUA_TBOOLEAN");
+                                break;
+                            case LUA_TLIGHTUSERDATA:
+                                lua_pushstring(L, "LUA_TLIGHTUSERDATA");
+                                break;
+                            case LUA_TNUMBER:
+                                lua_pushstring(L, "LUA_TNUMBER");
+                                break;
+                            case LUA_TSTRING:
+                                lua_pushstring(L, "LUA_TSTRING");
+                                break;
+                            case LUA_TTABLE:
+                                lua_pushstring(L, "LUA_TTABLE");
+                                break;
+                            case LUA_TFUNCTION:
+                                lua_pushstring(L, "LUA_TFUNCTION");
+                                break;
+                            case LUA_TUSERDATA:
+                                lua_pushstring(L, "LUA_TUSERDATA");
+                                break;
+                            case LUA_TTHREAD:
+                                lua_pushstring(L, "LUA_TTHREAD");
+                                break;
+                            default:
+                                lua_pushstring(L, "LUA_Unkown");
+                                break;
+                        }
+                        lua_newtable(L);
+                        {
+                            lua_pushstring(L, "MemorySize");
+                            lua_pushnumber(L, (lua_Number)SizeCountPair.first);
+                            lua_settable(L, -3);
+
+                            lua_pushstring(L, "ObjectCount");
+                            lua_pushnumber(L, (lua_Number)SizeCountPair.second);
+                            lua_settable(L, -3);
+                        }
+                        lua_settable(L, -3);
+                    }
                     lua_settable(L, -3);
                 }
 

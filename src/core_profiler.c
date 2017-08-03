@@ -95,6 +95,53 @@ int lprofP_callhookCount(lprofP_STATE* S, int LineCount) {
     return 0;
 }
 
+std::string GetFuncFullName(lprofS_STACK_RECORD *info)
+{
+    char* FuncSource = info->file_defined;
+    formats(FuncSource);
+    char* FuncName = info->function_name;
+    std::string FuncFullName;
+    FuncFullName.append(FuncName);
+    FuncFullName.append(":");
+    FuncFullName.append(FuncSource);
+    FuncFullName.append(":");
+    FuncFullName.append(std::to_string(info->line_defined));
+    return FuncFullName;
+}
+
+std::string GetCalleePos(lprofS_STACK_RECORD *info)
+{
+    std::string CalleePos;
+    CalleePos.append(info->CallerSource);
+    CalleePos.append(":");
+    CalleePos.append(std::to_string(info->current_line));
+    return CalleePos;
+}
+
+CalleeInfo& GetCalleeInfo(ThreadFuncCalleeInfoMap& InfoMap, int ThreadIndex, std::string FuncFullName, std::string CalleePos)
+{
+    auto ThreadIndexIter = InfoMap.find(ThreadIndex);
+    if (ThreadIndexIter == InfoMap.end())
+    {
+        InfoMap[ThreadIndex] = FuncCalleeInfoMap();
+    }
+    FuncCalleeInfoMap& Func2CalleeInfo = InfoMap[ThreadIndex];
+
+    auto CalleeInfoMapIter = Func2CalleeInfo.find(FuncFullName);
+    if (CalleeInfoMapIter == Func2CalleeInfo.end())
+    {
+        Func2CalleeInfo[FuncFullName] = CalleeInfoMap();
+    }
+    CalleeInfoMap& Callee2Info = Func2CalleeInfo[FuncFullName];
+
+    auto InfoIter = Callee2Info.find(CalleePos);
+    if (InfoIter == Callee2Info.end())
+    {
+        Callee2Info[CalleePos] = CalleeInfo();
+    }
+    return Callee2Info[CalleePos];
+}
+
 /* pauses all timers to write a log line and computes the new stack */
 /* returns if there is another function in the stack */
 int lprofP_callhookOUT(lprofP_STATE* S, ThreadFuncCalleeInfoMap& InfoMap, long TotalMemory) {
@@ -114,46 +161,15 @@ int lprofP_callhookOUT(lprofP_STATE* S, ThreadFuncCalleeInfoMap& InfoMap, long T
         info->local_time += function_call_time;
         info->total_time += function_call_time;
 
-        auto ThreadIndexIter = InfoMap.find(S->ThreadIndex);
-        if (ThreadIndexIter == InfoMap.end())
-        {
-            InfoMap[S->ThreadIndex] = FuncCalleeInfoMap();
-        }
-        FuncCalleeInfoMap& Func2CalleeInfo = InfoMap[S->ThreadIndex];
+        std::string FuncFullName = GetFuncFullName(info);
 
-        char* FuncSource = info->file_defined;
-        formats(FuncSource);
-        char* FuncName = info->function_name;
-        std::string FuncFullName;
-        FuncFullName.append(FuncName);
-        FuncFullName.append(":");
-        FuncFullName.append(FuncSource);
-        FuncFullName.append(":");
-        FuncFullName.append(std::to_string(info->line_defined));
+        std::string CalleePos = GetCalleePos(info);
 
-        auto CalleeInfoMapIter = Func2CalleeInfo.find(FuncFullName);
-        if (CalleeInfoMapIter == Func2CalleeInfo.end())
-        {
-            Func2CalleeInfo[FuncFullName] = CalleeInfoMap();
-        }
-        CalleeInfoMap& Callee2Info = Func2CalleeInfo[FuncFullName];
-
-        std::string CalleePos;
-        CalleePos.append(info->CallerSource);
-        CalleePos.append(":");
-        CalleePos.append(std::to_string(info->current_line));
-
-        auto InfoIter = Callee2Info.find(CalleePos);
-        if (InfoIter == Callee2Info.end())
-        {
-            Callee2Info[CalleePos] = CalleeInfo();
-            Callee2Info[CalleePos].StackLevel = S->stack_level;
-        }
-        CalleeInfo& CallInfo = Callee2Info[CalleePos];
+        CalleeInfo& CallInfo = GetCalleeInfo(InfoMap, S->ThreadIndex, FuncFullName, CalleePos);
+        CallInfo.StackLevel = S->stack_level;
         CallInfo.Count++;
         CallInfo.LocalStep += info->local_step;
         CallInfo.TotalTime += info->total_time;
-        CallInfo.MemoryAllocated += info->MemoryAllocated;
 
     } while (info->IsTailCall);
 
