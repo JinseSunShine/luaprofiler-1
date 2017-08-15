@@ -77,9 +77,12 @@ void * LuaAllocWrapper (void *ud, void *ptr, size_t osize, size_t nsize)
             std::string FuncFullName = GetFuncFullName(CurStack);
             std::string CalleePos = GetCalleePos(CurStack);
             CalleeInfo& CalleeInfo = GetCalleeInfo(ProfilerInfoMap, CurThreadState->ThreadIndex, FuncFullName, CalleePos);
-            MemorySizeCount& MemorySizeCountPair = CalleeInfo.MemoryAllocated[(int)osize];
+            MemorySizeInfo& MemorySizeCountPair = CalleeInfo.MemoryAllocated[(int)osize];
             MemorySizeCountPair.first += nsize;
-            MemorySizeCountPair.second += 1;
+            if (MemorySizeCountPair.second < MemorySizeCountPair.first)
+            {
+                MemorySizeCountPair.second = MemorySizeCountPair.first;
+            }
 
             MemoryAllocInfo[pResult] = std::make_tuple(CurThreadState->ThreadIndex, FuncFullName, CalleePos, (int)osize);
         }
@@ -96,9 +99,8 @@ void * LuaAllocWrapper (void *ud, void *ptr, size_t osize, size_t nsize)
             std::string CalleePos = std::get<2>(ThreadFuncCallee);
             int ObjType = std::get<3>(ThreadFuncCallee);
             CalleeInfo& CalleeInfo = GetCalleeInfo(ProfilerInfoMap, ThreadIndex, FuncFullName, CalleePos);
-            MemorySizeCount& MemorySizeCountPair = CalleeInfo.MemoryAllocated[ObjType];
+            MemorySizeInfo& MemorySizeCountPair = CalleeInfo.MemoryAllocated[ObjType];
             MemorySizeCountPair.first -= osize;
-            MemorySizeCountPair.second -= 1;
             MemoryAllocInfo.erase(ptr);
         }
     }
@@ -377,12 +379,16 @@ static int profiler_stop(lua_State *L) {
                     lua_pushnumber(L, CalleeInfoIter.second.TotalTime);
                     lua_settable(L, -3);
 
+                    lua_pushstring(L, "MaxTotalTime");
+                    lua_pushnumber(L, CalleeInfoIter.second.MaxTotalTime);
+                    lua_settable(L, -3);
+
                     TypedMemoryInfo& MemoryAllocated = CalleeInfoIter.second.MemoryAllocated;
                     lua_pushstring(L, "MemoryAllocated");
                     lua_newtable(L);
                     for (int ObjType = LUA_TNIL; ObjType < LUA_NUMTAGS; ObjType++)
                     {
-                        MemorySizeCount& SizeCountPair = MemoryAllocated[ObjType];
+                        MemorySizeInfo& SizeCountPair = MemoryAllocated[ObjType];
                         switch (ObjType)
                         {
                             case LUA_TNIL:
@@ -422,7 +428,7 @@ static int profiler_stop(lua_State *L) {
                             lua_pushnumber(L, (lua_Number)SizeCountPair.first);
                             lua_settable(L, -3);
 
-                            lua_pushstring(L, "ObjectCount");
+                            lua_pushstring(L, "MemorySizeMax");
                             lua_pushnumber(L, (lua_Number)SizeCountPair.second);
                             lua_settable(L, -3);
                         }

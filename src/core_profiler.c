@@ -170,6 +170,10 @@ int lprofP_callhookOUT(lprofP_STATE* S, ThreadFuncCalleeInfoMap& InfoMap, long T
         CallInfo.Count++;
         CallInfo.LocalStep += info->local_step;
         CallInfo.TotalTime += info->total_time;
+        if (info->total_time > CallInfo.MaxTotalTime)
+        {
+            CallInfo.MaxTotalTime = info->total_time;
+        }
 
     } while (info->IsTailCall);
 

@@ -24,8 +24,8 @@ extern "C"
 }
 #include <map>
 
-typedef std::pair<size_t, size_t> MemorySizeCount;
-typedef std::map<int, MemorySizeCount> TypedMemoryInfo;
+typedef std::pair<size_t, size_t> MemorySizeInfo;
+typedef std::map<int, MemorySizeInfo> TypedMemoryInfo;
 
 typedef struct CalleeInfo CalleeInfo;
 struct CalleeInfo {
@@ -33,6 +33,7 @@ struct CalleeInfo {
     unsigned Count;
     unsigned LocalStep;
     float TotalTime;
+    float MaxTotalTime;
     TypedMemoryInfo MemoryAllocated;
     CalleeInfo()
     {
@@ -40,6 +41,7 @@ struct CalleeInfo {
         Count = 0;
         LocalStep = 0;
         TotalTime = 0;
+        MaxTotalTime = 0;
         for (int ObjType = LUA_TNIL; ObjType < LUA_NUMTAGS; ObjType++)
         {
             MemoryAllocated[ObjType] = std::make_pair(0, 0);
