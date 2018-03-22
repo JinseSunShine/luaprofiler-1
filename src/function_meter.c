@@ -134,16 +134,36 @@ void lprofM_resume_function(lprofP_STATE* S) {
     lprofM_resume_total_time(S);
 }
 
+#define StringSizeMAX 60
+const char* ChopLargeString(const char* SourceString)
+{
+    const char* Result = NULL;
+    if (SourceString != NULL)
+    {
+        size_t SourceLength = strlen(SourceString);
+        if (SourceLength > StringSizeMAX)
+        {
+            Result = SourceString + SourceLength - StringSizeMAX;
+        }
+        else {
+            Result = SourceString;
+        }
+    }
+    return Result;
+}
 
 /* the local time for the parent function is paused  */
 /* and the local and total time markers are started */
 void lprofM_enter_function(lprofP_STATE* S, char *file_defined, char *fcn_name, long linedefined, long currentline, const char *CallerFile, int IsTailCall, long TotalMemory) {
-    char* prev_name;
+    const char* Chopped_file_defined = ChopLargeString(file_defined);
+    const char* Chopped_fcn_name = ChopLargeString(fcn_name);
+    const char* Chopped_CallerFile = ChopLargeString(CallerFile);
+    const char* prev_name;
     char* cur_name;
     int IsYield = 0;
-    if (fcn_name != NULL && file_defined != NULL)
+    if (Chopped_fcn_name != NULL && Chopped_file_defined != NULL)
     {
-        IsYield = strcmp(file_defined, "=[C]") == 0 && strcmp(fcn_name, "yield") == 0;
+        IsYield = strcmp(Chopped_file_defined, "=[C]") == 0 && strcmp(Chopped_fcn_name, "yield") == 0;
     }
 
     /* the flow has changed to another function: */
@@ -163,23 +183,26 @@ void lprofM_enter_function(lprofP_STATE* S, char *file_defined, char *fcn_name, 
         lprofC_start_timer(&(newf.time_marker_function_local_time));
         lprofC_start_timer(&(newf.time_marker_function_total_time));
     }
-    newf.file_defined = file_defined;
-    if (fcn_name != NULL) {
-        newf.function_name = fcn_name;
+    newf.file_defined = Chopped_file_defined;
+    if (Chopped_fcn_name != NULL) {
+        newf.function_name = Chopped_fcn_name;
+        newf.MallocFuncName = 0;
     }
-    else if (strcmp(file_defined, "=[C]") == 0) {
+    else if (strcmp(Chopped_file_defined, "=[C]") == 0) {
         cur_name = (char*)malloc(sizeof(char)*(strlen("called from ") + strlen(prev_name) + 1));
         sprintf(cur_name, "called from %s", prev_name);
         newf.function_name = cur_name;
+        newf.MallocFuncName = 1;
     }
     else {
-        cur_name = (char*)malloc(sizeof(char)*(strlen(file_defined) + 12));
-        sprintf(cur_name, "%s:%li", file_defined, linedefined);
+        cur_name = (char*)malloc(sizeof(char)*(strlen(Chopped_file_defined) + 12));
+        sprintf(cur_name, "%s:%li", Chopped_file_defined, linedefined);
         newf.function_name = cur_name;
+        newf.MallocFuncName = 1;
     }
     newf.line_defined = linedefined;
     newf.current_line = currentline;
-    newf.CallerSource = CallerFile;
+    newf.CallerSource = Chopped_CallerFile;
     newf.local_time = 0.0;
     newf.total_time = 0.0;
     newf.local_step = 0;
@@ -227,6 +250,7 @@ lprofS_STACK_RECORD *lprofM_leave_function(lprofP_STATE* S, int isto_resume, lon
     /* resume the timer for the parent function ? */
     if (isto_resume)
         lprofM_resume_local_time(S);
+
     return &leave_ret;
 }
 

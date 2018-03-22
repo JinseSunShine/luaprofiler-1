@@ -19,8 +19,9 @@ typedef struct lprofS_sSTACK_RECORD lprofS_STACK_RECORD;
 struct lprofS_sSTACK_RECORD {
 	clock_t time_marker_function_local_time;
 	clock_t time_marker_function_total_time;
-	char *file_defined;
-	char *function_name;
+    const char *file_defined;
+    const char *function_name;
+    unsigned MallocFuncName;
 	char *source_code;        
 	long line_defined;
 	long current_line;
