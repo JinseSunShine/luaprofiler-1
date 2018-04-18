@@ -72,11 +72,10 @@ void * LuaAllocWrapper (void *ud, void *ptr, size_t osize, size_t nsize)
     lprofS_STACK_RECORD * CurStack = CurThreadState ? CurThreadState->stack_top : NULL;
     if (CurStack)
     {
-        if (ptr == NULL && osize > LUA_TNIL && osize < LUA_NUMTAGS)
+        std::string FuncFullName = GetFuncFullName(CurStack);
+        std::string CalleePos = GetCalleePos(CurStack);
+        if (ptr == NULL && osize >= LUA_TNIL && osize < LUA_NUMTAGS)
         {
-            CurThreadState->stack_top->MemoryAllocated += nsize;
-            std::string FuncFullName = GetFuncFullName(CurStack);
-            std::string CalleePos = GetCalleePos(CurStack);
             CalleeInfo& CalleeInfo = GetCalleeInfo(ProfilerInfoMap, CurThreadState->ThreadIndex, FuncFullName, CalleePos);
             MemorySizeInfo& MemorySizeCountPair = CalleeInfo.MemoryAllocated[(int)osize];
             MemorySizeCountPair.first += nsize;
@@ -88,9 +87,27 @@ void * LuaAllocWrapper (void *ud, void *ptr, size_t osize, size_t nsize)
             MemoryAllocInfo[pResult] = &CalleeInfo;
             Memory2Type[pResult] = (int)osize;
         }
+        else if (ptr != nullptr)
+        {
+            auto AllocInfo = MemoryAllocInfo.find(ptr);
+            if (AllocInfo != MemoryAllocInfo.end())
+            {
+                int ObjType = Memory2Type[ptr];
+                CalleeInfo& CalleeInfo = GetCalleeInfo(ProfilerInfoMap, CurThreadState->ThreadIndex, FuncFullName, CalleePos);
+                MemorySizeInfo& MemorySizeCountPair = CalleeInfo.MemoryAllocated[ObjType];
+                MemorySizeCountPair.first += nsize;
+                if (MemorySizeCountPair.second < MemorySizeCountPair.first)
+                {
+                    MemorySizeCountPair.second = MemorySizeCountPair.first;
+                }
+
+                MemoryAllocInfo[pResult] = &CalleeInfo;
+                Memory2Type[pResult] = ObjType;
+            }
+        }
     }
 
-    if (nsize == 0)
+    if (ptr)
     {
         auto AllocInfo = MemoryAllocInfo.find(ptr);
         if (AllocInfo != MemoryAllocInfo.end())
