@@ -115,7 +115,14 @@ void * LuaAllocWrapper (void *ud, void *ptr, size_t osize, size_t nsize)
             int ObjType = Memory2Type[ptr];
             CalleeInfo& CalleeInfo = *(AllocInfo->second);
             MemorySizeInfo& MemorySizeCountPair = CalleeInfo.MemoryAllocated[ObjType];
-            MemorySizeCountPair.first -= osize;
+            if (MemorySizeCountPair.first > osize)
+            {
+                MemorySizeCountPair.first -= osize;
+            }
+            else
+            {
+                MemorySizeCountPair.first = 0;
+            }
             MemoryAllocInfo.erase(ptr);
             Memory2Type.erase(ptr);
         }
