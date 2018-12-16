@@ -19,9 +19,8 @@ typedef struct lprofS_sSTACK_RECORD lprofS_STACK_RECORD;
 struct lprofS_sSTACK_RECORD {
 	clock_t time_marker_function_local_time;
 	clock_t time_marker_function_total_time;
-    const char *file_defined;
-    const char *function_name;
-    unsigned MallocFuncName;
+	char *file_defined;
+	char *function_name;
 	char *source_code;        
 	long line_defined;
 	long current_line;
@@ -31,7 +30,7 @@ struct lprofS_sSTACK_RECORD {
     unsigned local_step;
     int IsTailCall;
     long TotalMemory;
-    //size_t MemoryAllocated;
+    size_t MemoryAllocated;
 	lprofS_STACK_RECORD *next;
 };
 

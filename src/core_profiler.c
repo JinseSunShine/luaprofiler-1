@@ -67,6 +67,20 @@ static void output(const char *format, ...) {
     fflush(outf);
 }
 
+
+/* do not allow a string with '\n' and '|' (log file format reserved chars) */
+/* - replace them by ' '                                                    */
+static void formats(char *s) {
+    if (!s)
+        return;
+    size_t StrLen = strlen(s);
+    for (size_t i = 0; i < StrLen; i++) {
+        if ((s[i] == '|') || (s[i] == '\n'))
+            s[i] = ' ';
+    }
+}
+
+
 /* computes new stack and new timer */
 void lprofP_callhookIN(lprofP_STATE* S, char *func_name, char *file, int linedefined, int currentline, const char *CallerFile, int IsTailCall, long TotalMemory) {
     S->stack_level++;
@@ -83,8 +97,9 @@ int lprofP_callhookCount(lprofP_STATE* S, int LineCount) {
 
 std::string GetFuncFullName(lprofS_STACK_RECORD *info)
 {
-    const char* FuncSource = info->file_defined;
-    const char* FuncName = info->function_name;
+    char* FuncSource = info->file_defined;
+    formats(FuncSource);
+    char* FuncName = info->function_name;
     std::string FuncFullName;
     FuncFullName.append(FuncName);
     FuncFullName.append(":");
@@ -159,11 +174,7 @@ int lprofP_callhookOUT(lprofP_STATE* S, ThreadFuncCalleeInfoMap& InfoMap, long T
         {
             CallInfo.MaxTotalTime = info->total_time;
         }
-        //if (info->MallocFuncName > 0 && info->function_name)
-        //{
-        //    free(info->function_name);
-        //    info->function_name = NULL;
-        //}
+
     } while (info->IsTailCall);
 
 

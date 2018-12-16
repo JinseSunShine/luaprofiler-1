@@ -54,8 +54,7 @@ typedef std::map<std::string, CalleeInfoMap> FuncCalleeInfoMap;
 typedef std::map<int, FuncCalleeInfoMap> ThreadFuncCalleeInfoMap;
 typedef std::map<lua_State*, lprofP_STATE*> LuaState2ProfilerStateMap;
 typedef std::tuple<int, std::string, std::string, int> TupleThreadFuncCallee;
-typedef std::map<void*, CalleeInfo*> MemoryAllocInfoMap;
-typedef std::map<void*, int> MemoryTypeMap;
+typedef std::map<void*, TupleThreadFuncCallee> MemoryAllocInfoMap;
 
 /* computes new stack and new timer */
 void lprofP_callhookIN(lprofP_STATE* S, char *func_name, char *file, int linedefined, int currentline, const char *CallerFile, int IsTailCall, long TotalMemory);

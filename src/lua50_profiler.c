@@ -28,7 +28,6 @@ static bool IsRunningProfiler = false;
 ThreadFuncCalleeInfoMap ProfilerInfoMap;
 LuaState2ProfilerStateMap LuaState2ProfilerState;
 MemoryAllocInfoMap MemoryAllocInfo;
-MemoryTypeMap Memory2Type;
 lua_Alloc DefaultAllocFunc = NULL;
 void*   DefaultAllocUserData = NULL;
 lprofP_STATE* CurThreadState = NULL;
@@ -72,10 +71,11 @@ void * LuaAllocWrapper (void *ud, void *ptr, size_t osize, size_t nsize)
     lprofS_STACK_RECORD * CurStack = CurThreadState ? CurThreadState->stack_top : NULL;
     if (CurStack)
     {
-        std::string FuncFullName = GetFuncFullName(CurStack);
-        std::string CalleePos = GetCalleePos(CurStack);
-        if (ptr == NULL && osize >= LUA_TNIL && osize < LUA_NUMTAGS)
+        if (ptr == NULL && osize > LUA_TNIL && osize < LUA_NUMTAGS)
         {
+            CurThreadState->stack_top->MemoryAllocated += nsize;
+            std::string FuncFullName = GetFuncFullName(CurStack);
+            std::string CalleePos = GetCalleePos(CurStack);
             CalleeInfo& CalleeInfo = GetCalleeInfo(ProfilerInfoMap, CurThreadState->ThreadIndex, FuncFullName, CalleePos);
             MemorySizeInfo& MemorySizeCountPair = CalleeInfo.MemoryAllocated[(int)osize];
             MemorySizeCountPair.first += nsize;
@@ -84,47 +84,24 @@ void * LuaAllocWrapper (void *ud, void *ptr, size_t osize, size_t nsize)
                 MemorySizeCountPair.second = MemorySizeCountPair.first;
             }
 
-            MemoryAllocInfo[pResult] = &CalleeInfo;
-            Memory2Type[pResult] = (int)osize;
-        }
-        else if (ptr != nullptr)
-        {
-            auto AllocInfo = MemoryAllocInfo.find(ptr);
-            if (AllocInfo != MemoryAllocInfo.end())
-            {
-                int ObjType = Memory2Type[ptr];
-                CalleeInfo& CalleeInfo = GetCalleeInfo(ProfilerInfoMap, CurThreadState->ThreadIndex, FuncFullName, CalleePos);
-                MemorySizeInfo& MemorySizeCountPair = CalleeInfo.MemoryAllocated[ObjType];
-                MemorySizeCountPair.first += nsize;
-                if (MemorySizeCountPair.second < MemorySizeCountPair.first)
-                {
-                    MemorySizeCountPair.second = MemorySizeCountPair.first;
-                }
-
-                MemoryAllocInfo[pResult] = &CalleeInfo;
-                Memory2Type[pResult] = ObjType;
-            }
+            MemoryAllocInfo[pResult] = std::make_tuple(CurThreadState->ThreadIndex, FuncFullName, CalleePos, (int)osize);
         }
     }
 
-    if (ptr)
+    if (nsize == 0)
     {
         auto AllocInfo = MemoryAllocInfo.find(ptr);
         if (AllocInfo != MemoryAllocInfo.end())
         {
-            int ObjType = Memory2Type[ptr];
-            CalleeInfo& CalleeInfo = *(AllocInfo->second);
+            TupleThreadFuncCallee ThreadFuncCallee = AllocInfo->second;
+            int ThreadIndex = std::get<0>(ThreadFuncCallee);
+            std::string FuncFullName = std::get<1>(ThreadFuncCallee);
+            std::string CalleePos = std::get<2>(ThreadFuncCallee);
+            int ObjType = std::get<3>(ThreadFuncCallee);
+            CalleeInfo& CalleeInfo = GetCalleeInfo(ProfilerInfoMap, ThreadIndex, FuncFullName, CalleePos);
             MemorySizeInfo& MemorySizeCountPair = CalleeInfo.MemoryAllocated[ObjType];
-            if (MemorySizeCountPair.first > osize)
-            {
-                MemorySizeCountPair.first -= osize;
-            }
-            else
-            {
-                MemorySizeCountPair.first = 0;
-            }
+            MemorySizeCountPair.first -= osize;
             MemoryAllocInfo.erase(ptr);
-            Memory2Type.erase(ptr);
         }
     }
 
@@ -296,7 +273,7 @@ static int profiler_init(lua_State *L) {
             {
                 lua_Debug CurAR = DebugStack.top();
                 DebugStack.pop();
-                lua_getinfo(Coro, "nSl", &CurAR);
+                lua_getinfo(L, "nSl", &CurAR);
                 lprofP_callhookIN(CoroState, (char *)CurAR.name,
                     (char *)CurAR.source, CurAR.linedefined,
                     CurAR.currentline, CallerFile, 0, 0);
