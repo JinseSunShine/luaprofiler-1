@@ -330,7 +330,7 @@ class FrameGraph:
         self._id = 0
         self._frame_map = {}
         self._addr_stat = {}
-        self._root = StackFrame(None, "_root", self._frame_map)
+        self._root = StackFrame(None, "_total", self._frame_map)
         self._cursor = self._root
         self._layer = 0
         self._what = what

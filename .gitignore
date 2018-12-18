@@ -185,3 +185,4 @@ Source/Tools/**/bin/**
 .DS_Store
 Source/Server/PHP/.idea/
 SetEnvironment.bat
+.vscode/
