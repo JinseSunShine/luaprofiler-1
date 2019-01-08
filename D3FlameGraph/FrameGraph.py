@@ -43,7 +43,7 @@ TEMPLATE = u'''
       max-width: 990px;
     }
     
-    .d3-flame-graph rect {
+.d3-flame-graph rect {
   stroke: #EEEEEE;
   fill-opacity: .8;
 }
@@ -139,6 +139,12 @@ TEMPLATE = u'''
 #details {
     min-height: 50px;
 }
+
+#comb_container{
+  display:flex;
+  justify-content: space-between;
+}
+
     </style>
 
     <title>d3-flame-graph</title>
@@ -170,7 +176,22 @@ TEMPLATE = u'''
       </div>
       <hr>
       <div id="details">
+      </div>      
+      <div id="comb_container">
+        <table>
+          <thead>
+          <tr>
+          <th>Function</th>
+          <th>Samples</th>
+          </tr>
+          </thead>
+          <tbody  id="funcstat">
+          <tr><td>ggg</td><td>666</td></tr>
+          <tr><td>bbb</td><td>999</td></tr>
+          </tbody>
+        </table>
       </div>
+      
     </div>
 
     <!-- D3.js -->
@@ -220,7 +241,7 @@ TEMPLATE = u'''
     // Example of how to set fixed chart height
     // flameGraph.height(540);
 
-  d3.select("#chart")
+    d3.select("#chart")
           .datum($$WHOISYOURDADDY$$)
           .call(flameGraph);
           
@@ -245,7 +266,7 @@ TEMPLATE = u'''
 
     function onClick(d) {
       console.info("Clicked on " + d.data.name);
-    }
+    }    
     </script>
   </body>
 </html>

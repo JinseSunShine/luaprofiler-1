@@ -1,37 +1,141 @@
 import sys , os
-import importlib
-import urllib
 import json
 import FrameGraph
-
+import math
 FrameGraph, Matcher = FrameGraph.FrameGraph, FrameGraph.Matcher
 
+def get_node_unique_info(node):
+    strInfo = node["mod"] + node["func"]+str(node["def"]) + node["cf"]+ str(node["cl"])
+    return strInfo
 
 class DataProcess:
 
     def __init__(self):
         self._json_dic = {}
+        self._jsondata = None
+        self._nodeCount = 0
+        self._statistic_info = {}
+
         pass
 
     def ImportJsonFile(self, file):
         jsonData = json.load(file)
+        self._jsondata = jsonData
+        self._nodeCount = len(jsonData)
         return jsonData
         pass
 
     def ImportJsonString(self, content):
-        jsonData = json.loads(content)
-        return jsonData
+        try:
+            jsonData = json.loads(content)
+            self._jsondata = jsonData
+            self._nodeCount = len(jsonData)
+            return jsonData
+        except ValueError:
+            print("json file format error")
+            self._jsondata = None
+            return None
         pass
 
-class DataViewer:
-    def __init__(self):
+    def isAvalible(self):
+        return self._jsondata != None
+
+    def getDataNode(self, index):
+        return self._jsondata[index]
+
+    def getCount(self):
+        return self._nodeCount
+
+    def statisticCalledInfo(self, node):
+        if not node:
+            return
+        # same function & same call line
+        str_funcInfo = get_node_unique_info(node)
+
+        if not self._statistic_info.get(str_funcInfo):
+            self._statistic_info[str_funcInfo] = {
+                "t" : node["t"],
+                "count" : 1,
+            }
+        else:
+            self._statistic_info[str_funcInfo]["t"] += node["t"]
+            self._statistic_info[str_funcInfo]["count"] += 1
+
+        if "sub" in node:
+            for subnode in node["sub"]:
+                self.statisticCalledInfo(subnode)
 
         pass
 
     #
+    def sampling_statistics(self, startIndex, endIndex):
+        if endIndex < startIndex :
+            print("sample_and_merge_data failed endIndex < startIndex")
+            return
+
+        self.ClearStatisticInfo()
+
+        for index in range(startIndex, endIndex):
+            node = self.getDataNode(index)
+            self.statisticCalledInfo(node)
+        pass
+
+    def get_func_statisticInfo(self, str_funcInfo):
+        return self._statistic_info.get(str_funcInfo)
+
+    def ClearStatisticInfo(self):
+        self._statistic_info.clear()
+
+    def Clear(self):
+        self.ClearStatisticInfo()
+        pass
+
+class DataViewer:
+    def __init__(self,filepath=None):
+        #
+        self._DataProcess = DataProcess()
+        self._filepath = None
+        self._data_handle_flag = {}
+
+        if filepath != None:
+            self.OpneJsonFile(filepath)
+        pass
+
+    def OpneJsonFile(self, filepath, split_time = 10):
+
+        if not os.path.exists(filepath):
+            print("input file path is not exists")
+            return False
+
+        ifile = open(filepath, 'r', encoding='utf-8')
+        content = ifile.read()
+        content = content.replace("'", '"')
+        ifile.close()
+        _jsondata = self._DataProcess.ImportJsonString(content)
+        if _jsondata is None:
+            print("josn file load failed")
+            return False
+
+        self._filepath = filepath
+        self._splitTime = split_time
+        self._recordInfo = {
+            "sampleIndex" : 0,
+            "presampleIndex" : 0,
+            "endsampleIndex" :0,
+        }
+
+        return True
+
+    def get_sample_node_count(self):
+        nodecount = self._DataProcess.getCount()
+        if nodecount <= 0:
+            return 0
+        node = self._DataProcess.getDataNode(nodecount -1)  # total info
+        split_count = math.ceil(node["total_cs"] / (self._splitTime *60))
+        return split_count
+
     def Handle_JsonData(self, call_satck, root):
         if type(root) != list:
-            print("root is not a list type")
             return
 
         length = len(root)
@@ -41,62 +145,112 @@ class DataViewer:
         index = 0
         while index < length:
             call_info = root[index]
-            strdesc = call_info["mod"]+call_info["func"]+u" line:"+str(call_info["line"])+u" -def:"+str(call_info["def"])
+            str_funcInfo = get_node_unique_info(call_info)
+
+            # if self._data_handle_flag.get(str_funcInfo) != None:
+            #     index += 1
+            #     continue
+            # self._data_handle_flag[str_funcInfo] = 1
+
+            strdesc = call_info["mod"]+" fun:"+call_info["func"]+u" line:"+str(call_info["def"])+" @"+str(call_info["cf"])+str(call_info["cl"])
             call_satck.Enter( strdesc)
-            call_satck.Update(call_info["t"]*1000)
+            cost_time = call_info["t"]
+            if self._DataProcess.get_func_statisticInfo(str_funcInfo) != None:
+                cost_time = self._DataProcess.get_func_statisticInfo(str_funcInfo)["t"]
+
+            call_satck.Update(cost_time*1000)
             if "sub" in call_info:
                 self.Handle_JsonData(call_satck, call_info["sub"])
                 pass
 
             call_satck.Leave()
-            index = index + 1
+            index += 1
         pass
 
 
-def GenerateHtml(jsonfile, index):
-    if not os.path.exists(jsonfile):
-        print("input file path is not exists")
-        return
 
+    def get_sample_data(self, is_next):
+        sample_data = None
+        if is_next:
+            self._recordInfo["presampleIndex"] = self._recordInfo["sampleIndex"]
+            self._recordInfo["sampleIndex"] = self._recordInfo["endsampleIndex"]
 
-    ifile = open(jsonfile, 'r', encoding='utf-8')
-    content = ifile.read()
-    content = content.replace("'", '"')
+            node = self._DataProcess.getDataNode(self._recordInfo["sampleIndex"])
+            record_time = node["n"] or 0
+            count = self._DataProcess.getCount()
 
-    ifile.close()
+            if self._recordInfo["sampleIndex"] >= (count-2):
+                return None
 
-    DataProc =  DataProcess()
-    Viewer = DataViewer()
+            interval = 0
+            is_find = False
+            sample_data = []
+            for i in range(self._recordInfo["sampleIndex"], count-2):
+                node = self._DataProcess.getDataNode(i)
+                interval += node["n"] - record_time
+                record_time = node["n"]
 
-    try:
-        json.loads(content)
-    except ValueError:
-        print("deserializations json file falied")
-        return
+                sample_data.append(node)
+                if interval >= self._splitTime:
+                    self._recordInfo["endsampleIndex"] = i
+                    is_find = True
+                    break
+            if not is_find :
+                self._recordInfo["endsampleIndex"] = count-2
+        else:
+            # TODO :
+            pass
 
-    Json_List = DataProc.ImportJsonString(content)
-    if Json_List is None:
-        print("josn file load failed")
-        return
+        self._DataProcess.sampling_statistics(self._recordInfo["sampleIndex"], self._recordInfo["endsampleIndex"])
+        return sample_data
 
-    CALL_SATCK = FrameGraph("ns")
+    def FlushData(self, is_next = True):
 
-    count = len(Json_List)
-    if index >= count:
-        index = count -1
+        if not self._DataProcess.isAvalible():
+            return None, -1
+
+        root_node = self.get_sample_data(is_next)
+        if root_node == None:
+            return None, -2
+
+        self._data_handle_flag.clear()
+        try:
+            frameGraph = FrameGraph("us")
+            self.Handle_JsonData(frameGraph, root_node)
+
+            return frameGraph, 0
+
+        except ValueError:
+            exit(5)
         pass
 
-    jsonData = Json_List[index]
-    if jsonData["call"]:
-        Viewer.Handle_JsonData(CALL_SATCK, jsonData["call"])
+    def GetTotalCostInfo(self):
+        record_info = {}
+        node_count = self._DataProcess.getCount()
+        for i in range(0, node_count - 1):
+            node = self._DataProcess.getDataNode(i)
+            self.record_totalinfo(record_info, node)
+
+        lst_info = sorted(record_info.items(), key=lambda item: item[1], reverse=True)
+
+        jsObj = json.dumps(lst_info, indent =1)
+
+        record_info.clear()
+        return jsObj
+
+    def record_totalinfo(self, record_dict, node):
+        func_def = node["func"] + ' @' + node["mod"] + '-line:' + str(node["def"])
+        if not record_dict.get(func_def):
+            record_dict[func_def] = node["t"]
+        else:
+            record_dict[func_def] += node['t']
+
+        if "sub" in node:
+            for subnode in node["sub"]:
+                self.record_totalinfo(record_dict,subnode)
+
+    def Clear(self):
+        self._DataProcess.Clear()
+        self._recordInfo.clear()
         pass
 
-    ofile = open('test.html', 'wb')
-    ofile.write(CALL_SATCK.ToHTML().encode('utf-8'))
-    ofile.close()
-
-    print("Finish")
-
-    pass
-
-GenerateHtml("luarofiler.out", 50)
