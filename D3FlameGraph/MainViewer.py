@@ -49,7 +49,7 @@ class MainWindow(QMainWindow):
         #
         self.txt_SplitTime = QtWidgets.QLineEdit(self)
         self.txt_SplitTime.setGeometry(QtCore.QRect(120, 30, 80, 20))
-        self.txt_SplitTime.setText("10")
+        self.txt_SplitTime.setText("1")
 
         btnLoadFile = QtWidgets.QPushButton(self)
         btnLoadFile.setGeometry(10, 60, 100, 30)
@@ -172,7 +172,6 @@ class MainWindow(QMainWindow):
 
 def main():
 
-    """ the main function """
     app = QApplication(sys.argv)
     form = MainWindow()
     form.show()

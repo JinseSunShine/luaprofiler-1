@@ -2,6 +2,7 @@ import sys , os
 import json
 import FrameGraph
 import math
+from tkinter import messagebox
 FrameGraph, Matcher = FrameGraph.FrameGraph, FrameGraph.Matcher
 
 def get_node_unique_info(node):
@@ -101,10 +102,10 @@ class DataViewer:
             self.OpneJsonFile(filepath)
         pass
 
-    def OpneJsonFile(self, filepath, split_time = 10):
+    def OpneJsonFile(self, filepath, split_time = 1):
 
         if not os.path.exists(filepath):
-            print("input file path is not exists")
+            print("input file path is not exists:"+filepath)
             return False
 
         ifile = open(filepath, 'r', encoding='utf-8')
@@ -129,9 +130,13 @@ class DataViewer:
     def get_sample_node_count(self):
         nodecount = self._DataProcess.getCount()
         if nodecount <= 0:
+            messagebox.showinfo("info","nodecount is 0")
             return 0
         node = self._DataProcess.getDataNode(nodecount -1)  # total info
+
         split_count = math.ceil(node["total_cs"] / (self._splitTime *60))
+        if split_count <= 0:
+            split_count = 1
         return split_count
 
     def Handle_JsonData(self, call_satck, root):
@@ -254,3 +259,65 @@ class DataViewer:
         self._recordInfo.clear()
         pass
 
+
+def main(argv):
+    import time
+
+    # DataViewer init
+    _mDataViewer = DataViewer()
+
+    # import json file
+    file_path = argv[1]
+    split_time  = 1
+    if len(argv) > 2 and  argv[2]:
+        split_time = float(argv[2])
+
+    if _mDataViewer.OpneJsonFile(file_path, split_time):
+        splits_count = _mDataViewer.get_sample_node_count()
+        if splits_count <= 0:
+            print(u"Not contain avaliable value data")
+            return
+
+        path = os.path.realpath(sys.argv[0])
+        path = os.path.split(path)[0]
+        dir_name = path + '/' + time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime())
+
+        if not os.path.exists(dir_name):
+            os.mkdir(dir_name)
+
+        bSuccess = False
+        for i in range(0, splits_count):
+            print("Process Splite :"+ str(i))
+
+            frameGraph, code = _mDataViewer.FlushData(True)
+            if frameGraph == None:
+                print("FlushData failed not analysis data" + str(code))
+                break
+
+            ofile = open('{0}/example_{1}.html'.format(dir_name, i), 'wb')
+            ofile.write(frameGraph.ToHTML().encode('utf-8'))
+            ofile.close()
+
+            if i == (splits_count - 1):
+                bSuccess = True
+            pass
+
+        # export total cost info
+        jsData = _mDataViewer.GetTotalCostInfo()
+        ofile = open('{0}/totalinfo.json'.format(dir_name), 'w')
+        ofile.write(jsData)
+        ofile.close()
+
+        if bSuccess :
+            import webbrowser
+            print("Process Success!!")
+            # Open Web viewer
+            url = str.format('{0}/example_0.html',dir_name)
+            print(url)
+            webbrowser.open(url, 0, False)
+        else:
+            print("Process Failed ,please check it !!")
+    pass
+
+if __name__ == '__main__':
+    main(sys.argv)
